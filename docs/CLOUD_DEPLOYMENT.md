@@ -5,6 +5,32 @@ before accessing it from a laptop or phone. It does not mean cloud deployment
 is currently supported, and it does not authorize exposing the development API
 to the internet.
 
+## Render staging preparation
+
+The repository includes a reviewable [`render.yaml`](../render.yaml) for a
+new staging environment. It defines one HTTPS web service and one managed
+PostgreSQL database in the same region. It does not contain credentials and it
+does not deploy by itself.
+
+Before creating the Render services:
+
+1. Create or select a Render workspace and review the service/database plan.
+2. Import the repository and inspect the blueprint instead of deploying
+   immediately.
+3. Set the `JAYAI_OIDC_*` values as Render secrets. The redirect URI must be
+   the final Render HTTPS URL plus `/auth/oidc/callback`.
+4. Leave `JAYAI_OIDC_BOOTSTRAP_USER_ID` unset until the staging database has
+   been created and its first JayAI user has been deliberately identified.
+5. Deploy only after confirming that the database is the new staging database,
+   not the local or existing user database.
+
+The Render start command binds Uvicorn to `0.0.0.0:$PORT` as required by the
+platform, disables request access logging, and runs migrations against the
+blueprinted staging database. It must never be copied into the Chromebook
+launcher or used with the existing local database URL. The dashboard remains
+disabled outside development mode until a production dashboard rollout is
+explicitly reviewed; staging API checks should use the OIDC endpoints.
+
 ## Recommended path: private access first
 
 Keep JayAI on a Linux machine or private VPS and put it behind a private VPN
@@ -59,6 +85,10 @@ Laptop / phone
 
 Keep the database and Redis on private network addresses. Permit only the API
 and worker security groups to reach them. Keep Ollama private as well.
+
+The current Render blueprint does not provision Ollama or Redis. Model
+inference must remain on an approved private host, or be added as a separately
+reviewed private service. Do not put Ollama on the public web service.
 
 ## Staged rollout
 
