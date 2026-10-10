@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JayAI — Your workspace</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,"Segoe UI",Arial,sans-serif;background:#0b1012;color:#eceff2;font-size:15px}
+    *{box-sizing:border-box}body{margin:0}button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.42;cursor:not-allowed}
+    :focus-visible{outline:2px solid #5eead4;outline-offset:3px}
+    .app{max-width:1540px;min-height:100vh;margin:auto;display:grid;grid-template-columns:220px minmax(0,1fr)}
+    .rail{border-right:1px solid #282e35;background:#101718;padding:29px 18px;display:flex;flex-direction:column;gap:34px}
+    .brand{display:flex;gap:11px;align-items:center;font-size:22px;font-weight:800;letter-spacing:-.8px;padding:0 9px}.brandmark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:#5eead4;color:#15181b;font-weight:900;font-size:16px}.brand span:last-child{color:#5eead4}
+    .navlabel,.eyebrow{color:#9da4ab;text-transform:uppercase;font-size:11px;letter-spacing:.16em;font-weight:800}.navlabel{padding:0 12px;margin-bottom:13px}
+    .navitem{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:#22282e;color:#c5fbf4;font-weight:700}.navitem .dot{width:7px;height:7px;border-radius:50%;background:#5eead4}
+    .railbottom{margin-top:auto;padding:16px 12px;border-top:1px solid #282e35;color:#9aa2ab;font-size:12px;line-height:1.5}
+    .main{padding:35px clamp(20px,4vw,64px) 70px;min-width:0}.top{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}.top h1{font-size:clamp(26px,3vw,39px);letter-spacing:-.055em;margin:8px 0 4px;line-height:1.1}.sub{margin:0;color:#a8afb6;line-height:1.6}
+    .pill{border:1px solid #38414b;color:#9df5e9;background:#1c2c2a;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:750;white-space:nowrap}.pill.off{color:#e8b8aa;border-color:#624c45;background:#32231f}.pill.wait{color:#d3d6d9;border-color:#3d4853;background:#20252b}
+    .layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(310px,.9fr);gap:18px;margin-top:26px;align-items:start}.stack{display:grid;gap:18px;min-width:0}
+    .card{border:1px solid #2c343c;background:#172022;border-radius:19px;padding:24px;min-width:0;box-shadow:0 16px 50px #0002}.card h2{font-size:19px;letter-spacing:-.025em;margin:0}.cardhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.muted{color:#a9b0b7;font-size:13px;line-height:1.55}.cardhead .muted{margin:0}
+    .hero{background:radial-gradient(circle at 90% 0%,#37414b 0,transparent 36%),linear-gradient(120deg,#233835,#1d2126 69%);border-color:#44515e;padding:30px}.hero h2{font-size:clamp(22px,2.4vw,30px);max-width:440px;line-height:1.2;margin:11px 0}.hero p{color:#d1d7dd;margin:0 0 20px;max-width:510px;line-height:1.55}
+    .formlabel{display:block;color:#d6dbe0;font-weight:650;font-size:13px;margin:18px 0 9px}textarea,input,select{width:100%;border:1px solid #47515b;border-radius:11px;background:#131518;color:#eff7f6;padding:13px 15px;outline:none}textarea{min-height:108px;resize:vertical;line-height:1.5}textarea::placeholder,input::placeholder{color:#919ba4}textarea:focus,input:focus,select:focus{border-color:#5eead4}
+    .actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.button{border:1px solid transparent;border-radius:10px;padding:11px 15px;min-height:42px;background:#5eead4;color:#171a1d;font-weight:800}.button:hover:not(:disabled){background:#a0fff2}.button.secondary{background:#272e35;border-color:#3f4a55;color:#dff3f0}.button.secondary:hover:not(:disabled){background:#343d47}.button.danger{background:#422923;border-color:#735044;color:#ffd5bf}.button.danger:hover:not(:disabled){background:#59362c}.button.small{min-height:36px;padding:8px 11px;font-size:12px}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.chip{border:1px solid #4b5968;background:#263d3a;color:#dcf8f4;border-radius:999px;padding:8px 11px;font-size:12px}.chip:hover{background:#335550}.rowhint{font-size:12px;color:#a8b0b8;line-height:1.5;margin:12px 0 0}
+    .list{display:grid;gap:7px;max-height:330px;overflow:auto}.job{width:100%;display:flex;justify-content:space-between;align-items:center;text-align:left;gap:14px;padding:13px;border:1px solid #2c333b;background:#1f2429;color:#eff2f4;border-radius:11px}.job:hover,.job.selected{border-color:#5eead4;background:#282f36}.jobtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650}.state{font-size:10px;letter-spacing:.045em;text-transform:uppercase;color:#c6ced5;white-space:nowrap}.empty{color:#a5aeb6;font-size:13px;line-height:1.6;margin:0}
+    .progress{display:flex;align-items:center;gap:12px;color:#b0b9c2;font-size:12px;margin:0 0 17px}.stepnum{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;background:#333c45;color:#aaefe6;font-weight:800}.headline{font-size:18px;font-weight:750;line-height:1.35;overflow-wrap:anywhere}.detail{display:grid;gap:16px}.inner{border:1px solid #353e47;background:#141619;border-radius:13px;padding:17px;overflow-wrap:anywhere}.inner h3{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#a6b2be;margin:0 0 12px}.inner p{line-height:1.6;margin:0}.inner ol{margin:11px 0 0;padding-left:22px;line-height:1.65}.inner li+li{margin-top:4px}.data{white-space:pre-wrap;font-size:13px;color:#d9dee3;line-height:1.6}.kicker{display:block;color:#a6b0ba;font-size:12px;margin-top:12px}.status{min-height:22px;margin:12px 0 0;color:#90e4d9;font-size:13px;line-height:1.5;overflow-wrap:anywhere}.status.error{color:#ffb29e}
+    .controlrow{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.controlrow p{margin:6px 0 0}.footnote{border-top:1px solid #2c333b;margin-top:18px;padding-top:14px;font-size:12px;color:#9ba4ad;line-height:1.6}
+    .connectbox{display:grid;gap:9px}.connectbox .actions{margin-top:4px}
+    @media(max-width:1100px){.app{grid-template-columns:72px minmax(0,1fr)}.rail{align-items:center;padding:22px 9px}.brand{padding:0}.brandtext,.navlabel,.navitem span:last-child,.railbottom{display:none}.navitem{padding:12px}.main{padding:25px 24px 65px}}
+    @media(max-width:800px){.layout{grid-template-columns:1fr}.stack{gap:14px}.main{padding:22px 18px 55px}.card{padding:20px}.hero{padding:23px}}
+    @media(max-width:520px){.app{display:block}.rail{height:58px;display:flex;flex-direction:row;justify-content:space-between;padding:10px 16px;border-right:0;border-bottom:1px solid #282e35}.brandtext{display:block}.rail nav{display:none}.main{padding:20px 13px 50px}.top h1{font-size:30px}.top{align-items:flex-start}.card{padding:18px;border-radius:15px}.job{align-items:flex-start;flex-direction:column;gap:5px}.button{width:100%}.actions .button.small{width:auto}}
+    @media(prefers-reduced-motion:no-preference){.button,.job,.chip{transition:background .15s,border-color .15s}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-label="Workspace navigation">
+    <div class="brand"><div class="brandmark">J</div><div class="brandtext">Jay<span>AI</span></div></div>
+    <nav aria-label="Current page"><div class="navlabel">Workspace</div><div class="navitem"><span class="dot"></span><span>Overview</span></div><a class="navitem" href="/music" style="margin-top:8px;text-decoration:none"><span class="dot"></span><span>Song Studio</span></a></nav>
+    <div class="railbottom">Local workspace<br>Actions need your review.</div>
+  </aside>
+  <main class="main">
+    <header class="top"><div><span class="eyebrow">Your personal workspace</span><h1>Get things moving.</h1><p class="sub">Give JayAI a task. Review the plan. Stay in control.</p></div><div id="mode" class="pill wait">Not connected</div></header>
+    <div class="layout">
+      <div class="stack">
+        <section class="card hero" aria-labelledby="start-title"><span class="eyebrow">01 / Start here</span><h2 id="start-title">What can I help you check?</h2><p>Start with a local PC check. JayAI shows its plan before reading anything.</p>
+          <label class="formlabel" for="goal">Your task</label><textarea id="goal" maxlength="4000" placeholder="Check my PC health and update status"></textarea>
+          <div class="chips" aria-label="Example tasks"><button class="chip" type="button" data-goal="Check my PC health and update status">Check PC health</button><button class="chip" type="button" data-goal="List the processes running on my PC">Running processes</button></div>
+          <div class="actions"><button id="create" class="button" type="button" disabled>Create task →</button></div><p class="rowhint">The local model makes a plan. A PC check runs only after you approve it.</p>
+        </section>
+        <section class="card" aria-labelledby="tasks-title"><div class="cardhead"><div><span class="eyebrow">Activity</span><h2 id="tasks-title">Recent tasks</h2></div><button id="refresh" class="button secondary small" type="button" disabled>Refresh</button></div><div id="jobs" class="list"><p class="empty">Connect to see your tasks.</p></div></section>
+      </div>
+      <div class="stack">
+        <section class="card" aria-labelledby="connect-title"><div class="cardhead"><div><span class="eyebrow">Access</span><h2 id="connect-title">Connect this browser</h2></div></div><p class="muted">Enter the current dashboard key. It stays in this tab only and is not saved in browser storage.</p><div class="connectbox"><label class="formlabel" for="key">Dashboard key</label><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key"><div class="actions"><button id="connect" class="button" type="button">Connect</button></div><div id="connection" class="status" role="status" aria-live="polite"></div></div></section>
+        <section class="card" aria-labelledby="review-title"><div class="cardhead"><div><span class="eyebrow">02 / Review</span><h2 id="review-title">Task details</h2></div><span id="taskState" class="pill wait" hidden></span></div>
+          <div id="selected" class="empty">Create a task or select one from Recent tasks.</div>
+          <div id="detail" class="detail" hidden><div id="taskGoal" class="headline"></div><div id="plan" class="inner"><h3>Plan</h3><p>No plan yet.</p></div><div class="actions"><button id="makePlan" class="button secondary" type="button">Create plan</button><button id="run" class="button" type="button" disabled>Approve &amp; run check</button><button id="reject" class="button danger" type="button" disabled>Reject plan</button><button id="cancel" class="button danger" type="button">Cancel task</button></div><div id="result" class="inner"><h3>Result</h3><p>No result yet.</p></div></div>
+          <div id="message" class="status" role="status" aria-live="polite"></div>
+        </section>
+        <section class="card" aria-labelledby="control-title"><div class="controlrow"><div><span class="eyebrow">Safety control</span><h2 id="control-title">Your stop switch</h2><p id="controlText" class="muted">Connect to see its status.</p></div><span id="controlBadge" class="pill wait">Unknown</span></div><div class="actions" style="margin-top:18px"><button id="pause" class="button danger" type="button" disabled>Pause actions</button><button id="resume" class="button secondary" type="button" disabled>Resume</button></div><div class="footnote">Pausing prevents new actions. An action already running may finish.</div></section>
+        <section class="card" aria-labelledby="learning-title"><div class="cardhead"><div><span class="eyebrow">Learning</span><h2 id="learning-title">Preferences you chose to save</h2></div><div class="actions"><button id="exportLearning" class="button secondary small" type="button" disabled>Export learning</button><button id="clearLearning" class="button danger small" type="button" disabled>Clear learning</button></div></div><p class="muted">JayAI saves only notes you add here and brief success or failure categories. Do not enter passwords, keys, private messages, or file contents. Nothing learned grants permission.</p><label class="formlabel" for="memoryKey">Preference name</label><input id="memoryKey" maxlength="64" placeholder="response_style"><label class="formlabel" for="memoryKind">Type</label><select id="memoryKind"><option value="format">Answer format</option><option value="workflow">Workflow</option><option value="environment">Device or app preference</option><option value="accessibility">Accessibility</option></select><label class="formlabel" for="memorySource">Record as</label><select id="memorySource"><option value="USER_STATED">Something I stated</option><option value="USER_CORRECTION">A correction to a saved preference</option></select><label class="formlabel" for="memoryObservation">Preference</label><textarea id="memoryObservation" maxlength="500" placeholder="Example: Show terminal commands for the device I'm using."></textarea><div class="actions" style="margin-top:12px"><button id="saveLearning" class="button secondary" type="button" disabled>Save preference</button></div><div id="learningList" class="list" style="margin-top:14px"><p class="empty">Connect to inspect saved preferences.</p></div><div id="learningStatus" class="status" role="status" aria-live="polite"></div></section>
+        <section class="card" aria-labelledby="history-title"><div class="cardhead"><div><span class="eyebrow">Linux checks</span><h2 id="history-title">Recent health history</h2></div></div><p class="muted">Read-only summaries for this Linux environment.</p><div id="healthHistory" class="list"><p class="empty">Connect to inspect recent checks.</p></div></section>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+  const el = id => document.getElementById(id);
+  let current = null, currentPlan = null, connected = false, paused = true, busy = false;
+  const terminal = ['COMPLETED','FAILED','CANCELLED'];
+  const runnable = ['pc_health','pc_processes'];
+  const stateName = state => ({RECEIVED:'New',PLANNING:'Planning',WAITING_FOR_APPROVAL:'Needs review',EXECUTING:'Running',OBSERVING:'Checking',VERIFYING:'Verifying',COMPLETED:'Completed',FAILED:'Failed',CANCELLED:'Cancelled'})[state] || state;
+
+  function controls(){
+    el('create').disabled = !connected || busy;
+    el('refresh').disabled = !connected || busy;
+    el('connect').disabled = busy;
+    el('saveLearning').disabled = !connected || busy;
+    el('exportLearning').disabled = !connected || busy;
+    el('clearLearning').disabled = !connected || busy;
+    el('pause').disabled = !connected || busy || paused;
+    el('resume').disabled = !connected || busy || !paused;
+    el('makePlan').disabled = !connected || busy || paused || !current || terminal.includes(current.state) || !!currentPlan;
+    el('run').disabled = !connected || busy || paused || current?.state !== 'WAITING_FOR_APPROVAL' || !runnable.includes(currentPlan?.action);
+    el('reject').disabled = !connected || busy || current?.state !== 'WAITING_FOR_APPROVAL' || !currentPlan;
+    el('cancel').disabled = !connected || busy || !current || terminal.includes(current.state);
+  }
+  function notice(message, error=false){el('message').textContent=message;el('message').className='status'+(error?' error':'')}
+  async function api(path, method='GET', body){
+    const key=el('key').value.trim();if(!key)throw Error('Enter your dashboard key first.');
+    const response=await fetch(path,{method,headers:{'X-JayAI-Key':key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+    const raw=await response.text();let data;
+    try{data=raw?JSON.parse(raw):null}catch{throw Error(response.ok?'Server returned an invalid response.':'Request failed ('+response.status+').')}
+    if(!response.ok)throw Error(typeof data?.detail==='string'?data.detail:'Request failed ('+response.status+').');return data;
+  }
+  async function action(work, loading){
+    if(busy)return;busy=true;controls();notice(loading);
+    try{await work();notice('Done.')}catch(error){notice(error.message,true)}
+    finally{busy=false;controls()}
+  }
+  function text(tag,value,className){const node=document.createElement(tag);node.textContent=value;if(className)node.className=className;return node}
+  function showPlan(plan){
+    const box=el('plan');box.replaceChildren(text('h3','Plan'));
+    if(!plan){box.append(text('p','No plan yet. Create one to review the next step.'));return}
+    box.append(text('p',plan.summary));const steps=document.createElement('ol');
+    for(const step of plan.steps)steps.append(text('li',step));box.append(steps);
+    const label=plan.action==='pc_health'?'Read-only Linux health check':plan.action==='pc_processes'?'Read-only running process list':'No runnable action';
+    box.append(text('span','Proposed action: '+label,'kicker'));
+    if(plan.expected_evidence?.length){box.append(text('span','JayAI will verify:','kicker'));const evidence=document.createElement('ul');for(const item of plan.expected_evidence)evidence.append(text('li',item));box.append(evidence)}
+  }
+  function showResult(result){
+    const box=el('result');box.replaceChildren(text('h3','Result'));
+    if(!result){box.append(text('p','The verified result will appear here after an approved check.'));return}
+    const report=result.report;
+    if(result.kind==='pc_health'){
+      box.append(text('p','Free disk space: '+report.free_percent+'%'));
+      box.append(text('p','Older Downloads files: '+report.old_downloads_count));
+      box.append(text('p','ChromeOS update status is not available from the Linux environment.'));
+      if(report.update_error)box.append(text('p','Update check: '+report.update_error));
+      if(report.findings?.length){for(const finding of report.findings)box.append(text('p',finding.message))}
+      else box.append(text('p','No findings reported.'));
+    }else if(result.kind==='pc_processes'){
+      box.append(text('p',report.processes.length+' running processes shown (up to 30).'));
+      const list=document.createElement('ol');for(const process of report.processes)list.append(text('li',process.name+' · ID '+process.id));box.append(list);
+    }else box.append(text('p','Result received.'));
+    box.append(text('span','Scope: '+(report.scope||'Local PC')+' · Checked: '+(report.checked_at||'time unavailable'),'kicker'));
+  }
+  function showLearning(data){
+    const list=el('learningList');list.replaceChildren();
+    if(!data.records.length)list.append(text('p','No saved preferences. Nothing is learned without your input.','empty'));
+    for(const record of data.records){
+      const item=document.createElement('div');item.className='inner';
+      item.append(text('strong',record.record_key+' · '+record.kind),text('p',record.observation,'muted'));
+      item.append(text('span',record.source==='USER_CORRECTION'?'You corrected this preference':'You stated this preference','kicker'));
+      const actions=document.createElement('div');actions.className='actions';actions.style.marginTop='10px';
+      const edit=text('button','Edit');edit.type='button';edit.className='button secondary small';
+      edit.onclick=()=>{el('memoryKey').value=record.record_key;el('memoryKind').value=record.kind;el('memoryObservation').value=record.observation;el('memorySource').value='USER_CORRECTION';el('memorySource').disabled=true;el('memoryObservation').focus()};
+      const remove=text('button','Remove');remove.type='button';remove.className='button danger small';
+      remove.onclick=()=>action(async()=>{await api('/learning/'+encodeURIComponent(record.record_key),'DELETE');await refresh()},'Removing preference…');
+      actions.append(edit,remove);item.append(actions);list.append(item);
+    }
+    if(data.repeat_patterns.length)list.append(text('p','Repeat activity available for review: '+data.repeat_patterns.map(item=>item.task_kind+' ('+item.verified_count+')').join(', ')+'. No routine will run automatically.','muted'));
+    for(const suggestion of (data.routine_suggestions||[])){
+      const item=document.createElement('div');item.className='inner';
+      item.append(text('strong','Routine suggestion: '+suggestion.task_kind.replaceAll('_',' ')));
+      item.append(text('p','Based on '+suggestion.verified_count+' verified checks. Scope, schedule, and actions have not been chosen.','muted'));
+      for(const example of suggestion.supporting_examples||[]){
+        const when=example.verified_at||'date unavailable';
+        const duration=Number.isFinite(example.duration_seconds)?' · '+Math.round(example.duration_seconds)+' seconds':'';
+        item.append(text('span','Verified example: '+when+duration,'kicker'));
+      }
+      item.append(text('span','Suggestion only. No routine is scheduled or run automatically.','kicker'));
+      list.append(item);
+    }
+    el('learningStatus').textContent='Stored notes: '+data.records.length+' · Outcome records: '+data.episodes.length;
+  }
+  function showHistory(data){
+    const list=el('healthHistory');list.replaceChildren();
+    if(!data.checks.length){list.append(text('p','No health checks recorded yet.','empty'));return}
+    for(const item of [...data.checks].reverse()){
+      const row=document.createElement('div');row.className='inner';
+      row.append(text('strong',item.scope+' · '+(item.checked_at||'Time unavailable')));
+      row.append(text('p',item.free_percent===null?'Free storage unavailable':'Free storage: '+item.free_percent+'%','muted'));
+      row.append(text('p',item.finding_codes.length?'Findings: '+item.finding_codes.join(', '):'No findings recorded.','muted'));
+      list.append(row);
+    }
+  }
+  async function select(job){
+    current=job;currentPlan=null;el('selected').hidden=true;el('detail').hidden=false;
+    el('taskGoal').textContent=job.goal;el('taskState').hidden=false;el('taskState').textContent=stateName(job.state);
+    showPlan(null);showResult(null);controls();
+    try{currentPlan=await api('/jobs/'+job.id+'/plan');showPlan(currentPlan)}catch(error){if(!error.message.includes('not found'))throw error}
+    try{showResult(await api('/jobs/'+job.id+'/result'))}catch(error){if(!error.message.includes('not found'))throw error}
+    controls();
+  }
+  async function refresh(){
+    const [jobs,control,learning,history]=await Promise.all([api('/jobs'),api('/control'),api('/learning'),api('/pc/history')]);paused=control.paused;showLearning(learning);showHistory(history);
+    el('controlText').textContent=paused?'New actions are paused.':'JayAI can start reviewed checks.';
+    el('controlBadge').textContent=paused?'Paused':'Active';el('controlBadge').className='pill'+(paused?' off':'');
+    el('mode').textContent=paused?'Connected · paused':'Connected · local';el('mode').className='pill'+(paused?' off':'');
+    const list=el('jobs');list.replaceChildren();
+    if(!jobs.length)list.append(text('p','No tasks yet. Start with a PC health check above.','empty'));
+    for(const job of jobs){
+      const row=document.createElement('button');row.type='button';row.className='job'+(current?.id===job.id?' selected':'');
+      row.append(text('span',job.goal,'jobtitle'),text('span',stateName(job.state),'state'));
+      row.onclick=()=>action(async()=>{await select(job);for(const item of list.children)item.classList.toggle('selected',item===row)},'Loading task…');
+      list.append(row);
+    }
+    if(current){const updated=jobs.find(job=>job.id===current.id);if(updated)await select(updated);else{current=null;currentPlan=null;el('detail').hidden=true;el('selected').hidden=false;el('taskState').hidden=true}}
+    controls();
+  }
+
+  el('connect').onclick=()=>action(async()=>{
+    connected=false;controls();
+    try {
+      await refresh();
+      connected=true;
+      el('connection').textContent='Connected for this tab. The key is not saved in browser storage.';
+    } catch(error) {
+      el('connection').textContent='Connection failed. Check the key and server.';
+      el('mode').textContent='Not connected';
+      el('mode').className='pill wait';
+      throw error;
+    } finally { controls(); }
+  },'Connecting…');
+
+  el('refresh').onclick=()=>action(refresh,'Refreshing tasks…');
+  el('pause').onclick=()=>action(async()=>{await api('/control/pause','POST');await refresh()},'Pausing new actions…');
+  el('resume').onclick=()=>action(async()=>{await api('/control/resume','POST');await refresh()},'Resuming…');
+  el('create').onclick=()=>action(async()=>{const goal=el('goal').value.trim();if(!goal)throw Error('Describe a task first.');const job=await api('/jobs','POST',{goal});el('goal').value='';await refresh();await select(job)},'Creating task…');
+  el('makePlan').onclick=()=>action(async()=>{if(!current)throw Error('Choose a task first.');await api('/jobs/'+current.id+'/plan','POST');await refresh()},'Making a Linux plan. The first request may take a minute…');
+  el('run').onclick=()=>action(async()=>{if(!current||!currentPlan)throw Error('Review a plan first.');const label=currentPlan.action==='pc_processes'?'list up to 30 running processes':'check Linux health';if(!confirm('Approve this exact plan to '+label+'?'))return;await api('/jobs/'+current.id+'/run','POST',{plan_sha256:currentPlan.sha256});await refresh()},'Running approved read-only check…');
+  el('cancel').onclick=()=>action(async()=>{if(!current)throw Error('Choose a task first.');await api('/jobs/'+current.id+'/cancel','POST');await refresh()},'Cancelling task…');
+  el('reject').onclick=()=>action(async()=>{if(!current||!currentPlan)throw Error('Review a plan first.');if(!confirm('Reject this exact plan? The task will be cancelled and the decision recorded.'))return;await api('/jobs/'+current.id+'/reject','POST',{plan_sha256:currentPlan.sha256,reason:'Rejected by user in dashboard'});await refresh()},'Recording rejection…');
+  el('saveLearning').onclick=()=>action(async()=>{const key=el('memoryKey').value.trim();const body={kind:el('memoryKind').value,source:el('memorySource').value,observation:el('memoryObservation').value.trim()};await api('/learning/'+encodeURIComponent(key),'PUT',body);el('memorySource').disabled=false;el('learningStatus').textContent='Saved only to this account.';await refresh()},'Saving your preference…');
+  el('exportLearning').onclick=()=>action(async()=>{const response=await fetch('/learning/export',{headers:{'X-JayAI-Key':el('key').value.trim()},cache:'no-store'});if(!response.ok){let detail='Export failed.';try{detail=(await response.json()).detail||detail}catch{}throw Error(detail)}const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='jayai-learning-export.json';document.body.append(link);link.click();link.remove();URL.revokeObjectURL(url)},'Exporting learning data…');
+  el('clearLearning').onclick=()=>action(async()=>{if(!confirm('Delete all saved preferences and outcome categories for this account?'))return;await api('/learning','DELETE');await refresh()},'Clearing learning…');
+  for(const chip of document.querySelectorAll('[data-goal]'))chip.onclick=()=>{el('goal').value=chip.dataset.goal;el('goal').focus()};
+  controls();
+
+  const forgetKey=document.createElement('button');
+  forgetKey.type='button';
+  forgetKey.className='button secondary';
+  forgetKey.textContent='Clear entered key';
+  forgetKey.onclick=()=>{
+    if(busy)return;
+    el('key').value='';
+    location.reload();
+  };
+  el('connect').parentElement.append(forgetKey);
+
+</script>
+</body>
+</html>
