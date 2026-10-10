@@ -1,6 +1,6 @@
 # JayAI CrossDevice 0.25.0
 
-JayAI is a **self-hosted local task dashboard** for Windows 11 and the Chromebook Linux development environment. It does not depend on ChatGPT or a paid model API. The user reviews a local model's plan and explicitly approves the currently supported read-only PC checks.
+JayAI is a **self-hosted local task dashboard** for Linux. It does not depend on ChatGPT or a paid model API. The user reviews a local model's plan and explicitly approves the currently supported read-only Linux checks.
 
 “Standalone” means the application and dashboard run on your own devices. This is not a single-file executable: Python, PostgreSQL, and a local Ollama model are runtime dependencies. Redis is optional for the queue prototype. Google OAuth is optional and requires your own Google OAuth application.
 
@@ -18,12 +18,14 @@ File, browser, and Google read connectors are not connected to job execution. Re
 
 ## Start here
 
-Read [Standalone setup and operations](docs/STANDALONE.md) for the full Windows and Chromebook Linux setup, credentials, migrations, startup, tunnel, backups, and troubleshooting.
+New to JayAI? Start with the friendly [Quick start guide](QUICKSTART.md).
+Read [Standalone setup and operations](docs/STANDALONE.md) for Linux setup, credentials, migrations, startup, backups, and troubleshooting.
 
 Other references:
 
 - [Chromebook scope and setup](docs/CHROMEBOOK.md)
 - [Local AI and Ollama](docs/AI.md)
+- [Quick start guide](QUICKSTART.md)
 - [Song Studio and Suno export](docs/MUSIC.md)
 - [Database setup and migration](FIX_DATABASE.md)
 - [Open work and verification status](TODO.md)
@@ -32,13 +34,7 @@ Other references:
 
 Install the project dependencies and create a virtual environment as documented in `docs/STANDALONE.md`. Then:
 
-**Windows PowerShell 7:**
-
-```powershell
-.\scripts\Start-JayAI.ps1
-```
-
-**Chromebook Linux Terminal:**
+**Linux terminal:**
 
 ```bash
 ./scripts/start-jayai.sh
@@ -54,10 +50,12 @@ python -m pytest -q
 
 ## Security and current maturity
 
-This remains a development prototype. The API key is temporary local development authentication, not production identity management. Keep JayAI bound to loopback and use the restricted SSH tunnel instructions if you need the Windows-hosted dashboard on the Chromebook. Never publish port 8000 to the LAN or internet. Secrets must not be placed in source files, prompts, logs, or chat.
+This remains a development prototype. The API key is temporary local development authentication, not production identity management. Keep JayAI bound to loopback and never publish port 8000 to the LAN or internet. Secrets must not be placed in source files, prompts, logs, or chat.
 
 See `TODO.md` for the exact distinction between implemented code and checks that still require live devices, Redis, security review, or a user-selected business workflow.
 
 See [credential and OAuth review](docs/SECURITY_REVIEW.md) for the current controls, fixes, and remaining production gates.
 
 See [untrusted data boundary](docs/UNTRUSTED_DATA.md) for supported planning inputs and connector integration gates.
+
+Future addon ideas and their safety boundaries are listed in the [Quick start guide](QUICKSTART.md). They are not enabled features in 0.25.0.

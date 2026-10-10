@@ -13,7 +13,7 @@ Reviewed `jayai/google.py`, OAuth API routes, connection schema, launcher key ha
 - Refresh checks the required read scope and rejects scopes outside the read allowlist. An omitted scope preserves the previously recorded scopes. A supplied replacement refresh token is encrypted and saved; otherwise the existing encrypted refresh token is retained.
 - Refresh writes compare the original encrypted access token, preventing an older request from overwriting a changed connection. If the connection changed or was deleted, the request stops before reading provider data; retry against the current connection.
 - API connection operations use authenticated user IDs. Returned collections are limited to ten items and selected metadata. Credentials are not returned.
-- Foreground launchers bind loopback. Generated dashboard keys are temporary process credentials; stable profile files contain only user UUIDs.
+- The foreground Linux launcher binds loopback and disables Uvicorn request access logging. The dashboard key is held only in the current browser tab, never browser storage; the launcher rejects a symlinked key path and atomically replaces the existing key file. The stable profile directory contains the user UUID and dashboard key file.
 
 ## Remaining production gates
 
@@ -25,6 +25,7 @@ Reviewed `jayai/google.py`, OAuth API routes, connection schema, launcher key ha
 | Refresh concurrency | Conditional update stops stale writes | Run concurrent refresh/disconnect tests against real PostgreSQL; mocks verify intent only |
 | Provider lifecycle | Mocked token exchange/read checks | Verify real consent, partial grants, expiry, refresh rotation, invalid grants and reconnect without logging credentials |
 | Deployment auth | Development shared dashboard key | Establish production identity/session handling before remote or multi-user deployment |
+| Dashboard/browser logging | Dashboard keys are not persisted by the browser; the standalone launcher disables Uvicorn access logs so OAuth callback query values are not written by request logging | Keep callback values out of application logs and add session-based, revocable auth before broader access |
 | Untrusted content | Connector metadata is separate from planning | Keep email/web/document/tool content out of planning until isolation tests and structured action policy are implemented |
 
 ## Operator notes

@@ -22,4 +22,4 @@ Keep connector content out of planning until each real connector path has proven
 
 ## Verification
 
-Full Python 3.12 suite: 116 passed, 1 existing Starlette/AnyIO warning. Windows/Chromebook acceptance, live model adversarial behavior, and integrated connector planning remain unverified.
+The current verification suite uses mocked providers and stores. Live Chromebook device acceptance, live model adversarial behavior, and integrated connector planning remain unverified.

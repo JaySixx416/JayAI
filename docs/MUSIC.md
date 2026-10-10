@@ -1,10 +1,10 @@
 # Song Studio — 0.25.0
 
-Song Studio runs in the JayAI dashboard on Windows or Chromebook Linux (Crostini). Open **Song Studio** from the dashboard rail, enter the current dashboard key, add a concept and/or draft lyrics, and select a revision level. Click **Run studio review** to request a structured package containing the song's underlying message, strengths, audit findings, revised master, best lines, performance map, title options, and Suno style/exclude text.
+Song Studio runs in the JayAI dashboard on Linux. Open **Song Studio** from the dashboard rail, enter the current dashboard key, add a concept and/or draft lyrics, and select a revision level. Click **Run studio review** to request a structured package containing the song's underlying message, strengths, audit findings, revised master, best lines, performance map, title options, and Suno style/exclude text.
 
 ## Chromebook setup
 
-Song Studio uses the OpenAI Chat Completions API. It is optional; PC-health features continue to work without it. Create an API key in your OpenAI developer account, then enter it into the Linux shell without echoing it or putting it in shell history:
+Song Studio uses the OpenAI Chat Completions API. It is optional; Linux health features continue to work without it. Create an API key in your OpenAI developer account, then enter it into the Linux shell without echoing it or putting it in shell history:
 
 ```bash
 cd ~/JayAI-CrossDevice-0.25.0

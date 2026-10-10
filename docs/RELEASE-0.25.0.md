@@ -1,6 +1,6 @@
 # Release 0.25.0
 
-Adds a browser-based Song Studio to the self-hosted dashboard, packaged for Chromebook Crostini and Windows.
+Adds a browser-based Song Studio to the self-hosted Linux dashboard, packaged for Chromebook Crostini.
 
 - Adds authenticated `/music` UI, `/api/music/status`, and `/api/music/prepare` endpoints.
 - Calls the OpenAI Chat Completions API only when the user submits a studio review; the API key is read from `JAYAI_MUSIC_API_KEY` and is not persisted by JayAI.
