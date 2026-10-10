@@ -3,7 +3,9 @@
 import base64
 import hashlib
 import json
+import os
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -14,6 +16,68 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 SESSION_TTL = timedelta(hours=12)
 MAX_ID_TOKEN_AGE = timedelta(minutes=10)
+
+
+@dataclass(frozen=True)
+class OIDCSettings:
+    issuer: str
+    authorization_endpoint: str
+    token_endpoint: str
+    jwks_url: str
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    cookie_secure: bool
+
+
+def oidc_settings() -> OIDCSettings:
+    values = {
+        "issuer": os.getenv("JAYAI_OIDC_ISSUER", ""),
+        "authorization_endpoint": os.getenv("JAYAI_OIDC_AUTHORIZATION_ENDPOINT", ""),
+        "token_endpoint": os.getenv("JAYAI_OIDC_TOKEN_ENDPOINT", ""),
+        "jwks_url": os.getenv("JAYAI_OIDC_JWKS_URL", ""),
+        "client_id": os.getenv("JAYAI_OIDC_CLIENT_ID", ""),
+        "client_secret": os.getenv("JAYAI_OIDC_CLIENT_SECRET", ""),
+        "redirect_uri": os.getenv("JAYAI_OIDC_REDIRECT_URI", ""),
+    }
+    if not all(values.values()) or any(
+        not values[name].startswith("https://")
+        for name in ("issuer", "authorization_endpoint", "token_endpoint", "jwks_url", "redirect_uri")
+    ):
+        raise RuntimeError("OIDC HTTPS configuration is incomplete")
+    return OIDCSettings(
+        **values,
+        cookie_secure=os.getenv("JAYAI_OIDC_COOKIE_SECURE", "true").lower() == "true",
+    )
+
+
+def pkce_verifier() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def pkce_challenge(verifier: str) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+
+
+def fetch_jwks(url: str, http: httpx.Client | None = None) -> dict:
+    if not url.startswith("https://"):
+        raise ValueError("OIDC JWKS URL must use HTTPS")
+
+    def send(client: httpx.Client) -> dict:
+        try:
+            response = client.get(url)
+            response.raise_for_status()
+            value = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError("OIDC signing keys unavailable") from exc
+        if not isinstance(value, dict) or not isinstance(value.get("keys"), list):
+            raise RuntimeError("OIDC signing keys response is invalid")
+        return value
+
+    if http is not None:
+        return send(http)
+    with httpx.Client(timeout=10, trust_env=False) as client:
+        return send(client)
 
 
 def new_session_token() -> str:

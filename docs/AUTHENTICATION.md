@@ -49,6 +49,24 @@ Migration `014_oidc_sessions.sql` now describes this foundation, but it has
 not been applied to the existing database. It must be reviewed and tested
 against a clearly isolated database before any real upgrade.
 
+## Current API wiring
+
+The API now exposes `/auth/oidc/login`, `/auth/oidc/callback`, and
+`/auth/logout`. Configure the issuer, authorization endpoint, token endpoint,
+JWKS URL, client ID, client secret, and HTTPS redirect URI with the
+`JAYAI_OIDC_*` environment variables. The callback validates state, nonce,
+PKCE, issuer, audience, freshness, and the signed ID token before creating a
+12-hour HttpOnly session cookie. Existing linked identities are required;
+first-time linking is allowed only when the one-time deployment bootstrap
+variable `JAYAI_OIDC_BOOTSTRAP_USER_ID` is explicitly set.
+
+The browser never receives or stores the provider secret, access token,
+refresh token, or JayAI session token in web storage. The session token is an
+HttpOnly cookie and only its hash is persisted. Set
+`JAYAI_OIDC_COOKIE_SECURE=true` for HTTPS deployments. The development API key
+remains available only in `JAYAI_ENV=development` and is not a cloud login
+mechanism.
+
 ## Development transition
 
 Keep the current `JAYAI_DEV_API_KEY` flow available only when
