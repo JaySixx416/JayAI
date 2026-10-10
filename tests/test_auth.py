@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from uuid import uuid4
 from starlette.requests import Request
+from fastapi import HTTPException
 
 from jayai import main
 from jayai.auth import (authorization_url, exchange_code, new_session_token,
@@ -121,9 +122,45 @@ def test_oidc_login_callback_creates_session_and_logout_revokes_it(monkeypatch):
     session_cookies = SimpleCookie()
     for value in callback.headers.getlist("set-cookie"):
         session_cookies.load(value)
+    csrf = session_cookies["jayai_csrf"].value
     logout_request = Request({
         "type": "http",
-        "headers": [(b"cookie", f"jayai_session={session_cookies['jayai_session'].value}".encode())],
+        "headers": [
+            (b"cookie", f"jayai_session={session_cookies['jayai_session'].value}; jayai_csrf={csrf}".encode()),
+            (b"x-jayai-csrf", csrf.encode()),
+        ],
     })
     assert main.logout(logout_request, store).body == b'{"authenticated":false}'
     assert not store.sessions
+
+
+def test_session_write_requires_matching_csrf_cookie_and_header(monkeypatch):
+    user_id = uuid4()
+    token = new_session_token()
+    csrf = new_session_token()
+
+    class Store:
+        def get_auth_session(self, token_hash):
+            assert token_hash == session_token_hash(token)
+            return {"user_id": user_id}
+
+        def touch_auth_session(self, token_hash):
+            return True
+
+    monkeypatch.setenv("JAYAI_ENV", "production")
+    monkeypatch.setenv("JAYAI_OIDC_ISSUER", "https://issuer.example")
+    monkeypatch.setattr(main, "repository", lambda: Store())
+
+    def request(headers):
+        return Request({
+            "type": "http", "method": "POST",
+            "headers": [(key.encode(), value.encode()) for key, value in headers.items()],
+        })
+
+    with pytest.raises(HTTPException) as error:
+        main.development_user(request({"cookie": f"jayai_session={token}; jayai_csrf={csrf}"}))
+    assert error.value.detail == "CSRF validation failed"
+    assert main.development_user(request({
+        "cookie": f"jayai_session={token}; jayai_csrf={csrf}",
+        "x-jayai-csrf": csrf,
+    })) == user_id
