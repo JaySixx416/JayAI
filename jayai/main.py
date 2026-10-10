@@ -6,12 +6,15 @@ from pathlib import Path
 from hmac import compare_digest
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from jayai.contracts import JobState, Limits, PolicyMode
+from jayai.auth import (authorization_url, exchange_code, fetch_jwks, new_session_token,
+                        oidc_settings, pkce_challenge, pkce_verifier, session_expiry,
+                        session_token_hash, validate_id_token)
 from jayai.db import Repository
 from jayai.learning import LearningInput, routine_suggestions
 from jayai.plans import expected_evidence, plan_digest, verify_read_only_result
@@ -44,20 +47,114 @@ def health() -> Health:
     return Health(status="ok", phase=1)
 
 
-def development_user(x_jayai_key: str | None = Header(default=None)) -> UUID:
-    """Temporary single-user development auth; no client-provided user identity."""
-    if os.getenv("JAYAI_ENV") != "development":
-        raise HTTPException(status_code=503, detail="Development API disabled")
-    expected = os.getenv("JAYAI_DEV_API_KEY", "")
-    user_id = os.getenv("JAYAI_DEV_USER_ID", "")
-    if len(expected) < 32 or not user_id:
-        raise HTTPException(status_code=503, detail="Development API not configured")
-    if not x_jayai_key or not compare_digest(x_jayai_key, expected):
-        raise HTTPException(status_code=401, detail="Invalid API key")
+def repository() -> Repository:
+    return Repository()
+
+
+SESSION_COOKIE = "jayai_session"
+OIDC_STATE_COOKIE = "jayai_oidc_state"
+OIDC_NONCE_COOKIE = "jayai_oidc_nonce"
+OIDC_VERIFIER_COOKIE = "jayai_oidc_verifier"
+
+
+def development_user(request: Request, x_jayai_key: str | None = Header(default=None)) -> UUID:
+    """Authenticate the local development key or an expiring OIDC session."""
+    if os.getenv("JAYAI_ENV") == "development":
+        expected = os.getenv("JAYAI_DEV_API_KEY", "")
+        user_id = os.getenv("JAYAI_DEV_USER_ID", "")
+        if len(expected) >= 32 and user_id and x_jayai_key and compare_digest(x_jayai_key, expected):
+            try:
+                return UUID(user_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=503, detail="Invalid development user configuration") from exc
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        if os.getenv("JAYAI_ENV") == "development":
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        if not os.getenv("JAYAI_OIDC_ISSUER"):
+            raise HTTPException(status_code=503, detail="OIDC authentication is not configured")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    db = repository()
+    row = db.get_auth_session(session_token_hash(token))
+    if row is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        return UUID(user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=503, detail="Invalid development user configuration") from exc
+        user_id = UUID(str(row["user_id"]))
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=401, detail="Authentication required") from exc
+    db.touch_auth_session(session_token_hash(token))
+    return user_id
+
+
+def _set_transient_cookie(response: JSONResponse, name: str, value: str, secure: bool) -> None:
+    response.set_cookie(name, value, max_age=600, httponly=True, secure=secure,
+                        samesite="lax", path="/auth")
+
+
+@app.get("/auth/oidc/login")
+def oidc_login() -> JSONResponse:
+    try:
+        settings = oidc_settings()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="OIDC authentication is not configured") from exc
+    state = new_session_token()
+    nonce = new_session_token()
+    verifier = pkce_verifier()
+    url = authorization_url(settings.authorization_endpoint, settings.client_id,
+                            settings.redirect_uri, state, nonce, pkce_challenge(verifier))
+    response = JSONResponse({"authorization_url": url})
+    _set_transient_cookie(response, OIDC_STATE_COOKIE, state, settings.cookie_secure)
+    _set_transient_cookie(response, OIDC_NONCE_COOKIE, nonce, settings.cookie_secure)
+    _set_transient_cookie(response, OIDC_VERIFIER_COOKIE, verifier, settings.cookie_secure)
+    return response
+
+
+@app.get("/auth/oidc/callback")
+def oidc_callback(request: Request, code: str = "", state: str = "",
+                  db: Repository = Depends(repository)) -> JSONResponse:
+    try:
+        settings = oidc_settings()
+        expected_state = request.cookies.get(OIDC_STATE_COOKIE, "")
+        nonce = request.cookies.get(OIDC_NONCE_COOKIE, "")
+        verifier = request.cookies.get(OIDC_VERIFIER_COOKIE, "")
+        if not code or not state or not expected_state or not compare_digest(state, expected_state):
+            raise ValueError("Invalid OIDC state")
+        if not nonce or not verifier:
+            raise ValueError("OIDC login state expired")
+        tokens = exchange_code(settings.token_endpoint, settings.client_id, settings.client_secret,
+                               settings.redirect_uri, code, verifier)
+        claims = validate_id_token(tokens["id_token"], fetch_jwks(settings.jwks_url),
+                                   settings.issuer, settings.client_id, nonce)
+        user_id = db.find_oidc_identity(claims["issuer"], claims["subject"])
+        if user_id is None:
+            bootstrap = os.getenv("JAYAI_OIDC_BOOTSTRAP_USER_ID", "")
+            if not bootstrap:
+                raise PermissionError("OIDC account is not linked")
+            user_id = UUID(bootstrap)
+            if not db.bind_oidc_identity(user_id, claims["issuer"], claims["subject"]):
+                raise PermissionError("OIDC account is already linked")
+        token = new_session_token()
+        db.create_auth_session(user_id, session_token_hash(token), session_expiry())
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="OIDC authentication failed") from exc
+    response = JSONResponse({"authenticated": True})
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, secure=settings.cookie_secure,
+                        samesite="lax", path="/", max_age=43200)
+    for name in (OIDC_STATE_COOKIE, OIDC_NONCE_COOKIE, OIDC_VERIFIER_COOKIE):
+        response.delete_cookie(name, path="/auth")
+    return response
+
+
+@app.post("/auth/logout")
+def logout(request: Request, db: Repository = Depends(repository)) -> JSONResponse:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        db.revoke_auth_session(session_token_hash(token))
+    response = JSONResponse({"authenticated": False})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
 
 
 @app.get("/api/music/status")
@@ -73,10 +170,6 @@ def music_prepare(body: SongRequest, user_id: UUID = Depends(development_user)) 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-def repository() -> Repository:
-    return Repository()
 
 
 class JobCreate(BaseModel):
