@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: jayai-staging
+    runtime: python
+    plan: starter
+    region: ohio
+    buildCommand: python -m pip install .
+    startCommand: python -m jayai migrate && uvicorn jayai.main:app --host 0.0.0.0 --port $PORT --no-access-log
+    healthCheckPath: /health
+    envVars:
+      - key: JAYAI_ENV
+        value: production
+      - key: JAYAI_DATABASE_URL
+        fromDatabase:
+          name: jayai-staging-db
+          property: connectionString
+      - key: JAYAI_OIDC_ISSUER
+        sync: false
+      - key: JAYAI_OIDC_AUTHORIZATION_ENDPOINT
+        sync: false
+      - key: JAYAI_OIDC_TOKEN_ENDPOINT
+        sync: false
+      - key: JAYAI_OIDC_JWKS_URL
+        sync: false
+      - key: JAYAI_OIDC_CLIENT_ID
+        sync: false
+      - key: JAYAI_OIDC_CLIENT_SECRET
+        sync: false
+      - key: JAYAI_OIDC_REDIRECT_URI
+        sync: false
+      - key: JAYAI_OIDC_BOOTSTRAP_USER_ID
+        sync: false
+      - key: JAYAI_OIDC_COOKIE_SECURE
+        value: "true"
+
+databases:
+  - name: jayai-staging-db
+    plan: basic-256mb
+    region: ohio
+    databaseName: jayai
+    user: jayai
