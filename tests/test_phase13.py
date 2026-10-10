@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -47,7 +48,7 @@ def test_approved_read_only_pc_check_verifies_and_is_tenant_scoped(monkeypatch):
     monkeypatch.setenv("JAYAI_DEV_API_KEY", key)
     monkeypatch.setenv("JAYAI_DEV_USER_ID", str(user))
     monkeypatch.setattr("jayai.maintenance.check", lambda: {
-        "scope": "Linux environment", "checked_at": "2026-09-27T00:00:00+00:00",
+        "scope": "Linux environment", "checked_at": datetime.now(timezone.utc).isoformat(),
         "free_percent": 80, "findings": []})
     app.dependency_overrides[repository] = lambda: db
     try:
@@ -81,7 +82,7 @@ def test_approved_process_list_is_read_only_and_saved(monkeypatch):
     monkeypatch.setenv("JAYAI_DEV_API_KEY", key)
     monkeypatch.setenv("JAYAI_DEV_USER_ID", str(user))
     monkeypatch.setattr("jayai.maintenance.running_processes", lambda: {
-        "scope": "Linux environment", "checked_at": "2026-09-27T00:00:00+00:00",
+        "scope": "Linux environment", "checked_at": datetime.now(timezone.utc).isoformat(),
         "processes": [{"name": "Explorer", "id": 42}]})
     app.dependency_overrides[repository] = lambda: db
     try:
