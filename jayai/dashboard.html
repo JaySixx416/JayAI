@@ -86,9 +86,11 @@
     el('cancel').disabled = !connected || busy || !current || terminal.includes(current.state);
   }
   function notice(message, error=false){el('message').textContent=message;el('message').className='status'+(error?' error':'')}
+  function csrfToken(){const match=document.cookie.match(/(?:^|;\s*)jayai_csrf=([^;]+)/);return match?decodeURIComponent(match[1]):''}
   async function api(path, method='GET', body){
-    const key=el('key').value.trim();if(!key)throw Error('Enter your dashboard key first.');
-    const response=await fetch(path,{method,headers:{'X-JayAI-Key':key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+    const key=el('key').value.trim();const csrf=csrfToken();if(!key&&!csrf)throw Error('Enter your dashboard key first.');
+    const headers={'X-JayAI-Key':key,'Content-Type':'application/json'};if(csrf)headers['X-JayAI-CSRF']=csrf;
+    const response=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});
     const raw=await response.text();let data;
     try{data=raw?JSON.parse(raw):null}catch{throw Error(response.ok?'Server returned an invalid response.':'Request failed ('+response.status+').')}
     if(!response.ok)throw Error(typeof data?.detail==='string'?data.detail:'Request failed ('+response.status+').');return data;
@@ -213,7 +215,7 @@
   el('cancel').onclick=()=>action(async()=>{if(!current)throw Error('Choose a task first.');await api('/jobs/'+current.id+'/cancel','POST');await refresh()},'Cancelling task…');
   el('reject').onclick=()=>action(async()=>{if(!current||!currentPlan)throw Error('Review a plan first.');if(!confirm('Reject this exact plan? The task will be cancelled and the decision recorded.'))return;await api('/jobs/'+current.id+'/reject','POST',{plan_sha256:currentPlan.sha256,reason:'Rejected by user in dashboard'});await refresh()},'Recording rejection…');
   el('saveLearning').onclick=()=>action(async()=>{const key=el('memoryKey').value.trim();const body={kind:el('memoryKind').value,source:el('memorySource').value,observation:el('memoryObservation').value.trim()};await api('/learning/'+encodeURIComponent(key),'PUT',body);el('memorySource').disabled=false;el('learningStatus').textContent='Saved only to this account.';await refresh()},'Saving your preference…');
-  el('exportLearning').onclick=()=>action(async()=>{const response=await fetch('/learning/export',{headers:{'X-JayAI-Key':el('key').value.trim()},cache:'no-store'});if(!response.ok){let detail='Export failed.';try{detail=(await response.json()).detail||detail}catch{}throw Error(detail)}const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='jayai-learning-export.json';document.body.append(link);link.click();link.remove();URL.revokeObjectURL(url)},'Exporting learning data…');
+  el('exportLearning').onclick=()=>action(async()=>{const csrf=csrfToken();const headers={'X-JayAI-Key':el('key').value.trim()};if(csrf)headers['X-JayAI-CSRF']=csrf;const response=await fetch('/learning/export',{headers,cache:'no-store'});if(!response.ok){let detail='Export failed.';try{detail=(await response.json()).detail||detail}catch{}throw Error(detail)}const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='jayai-learning-export.json';document.body.append(link);link.click();link.remove();URL.revokeObjectURL(url)},'Exporting learning data…');
   el('clearLearning').onclick=()=>action(async()=>{if(!confirm('Delete all saved preferences and outcome categories for this account?'))return;await api('/learning','DELETE');await refresh()},'Clearing learning…');
   for(const chip of document.querySelectorAll('[data-goal]'))chip.onclick=()=>{el('goal').value=chip.dataset.goal;el('goal').focus()};
   controls();
