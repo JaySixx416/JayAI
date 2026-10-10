@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -40,7 +41,7 @@ def test_dashboard_task_flow_from_goal_to_verified_pc_result(monkeypatch):
     monkeypatch.setattr("jayai.planner.propose", lambda _goal: ProposedPlan(
         summary="Inspect PC health", steps=["Read disk and update status"], action="pc_health"))
     monkeypatch.setattr("jayai.maintenance.check", lambda: {"scope": "Linux environment",
-                                                               "checked_at": "2026-09-27T00:00:00+00:00",
+                                                               "checked_at": datetime.now(timezone.utc).isoformat(),
                                                                "free_percent": 90, "findings": [],
                                                                "updates": {"start_type": "Manual", "reboot_required": False}})
 
