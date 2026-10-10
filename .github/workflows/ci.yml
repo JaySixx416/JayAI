@@ -1,0 +1,39 @@
+name: JayAI checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jayai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jayai_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: python -m pip install ".[test]"
+      - name: Validate shell syntax
+        run: bash -n scripts/start-jayai.sh scripts/setup-chromebook.sh
+      - name: Run tests with isolated PostgreSQL
+        env:
+          JAYAI_ISOLATED_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/jayai_test
+        run: python -m pytest -q
