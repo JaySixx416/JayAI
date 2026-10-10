@@ -28,6 +28,8 @@ Other references:
 - [Quick start guide](QUICKSTART.md)
 - [Song Studio and Suno export](docs/MUSIC.md)
 - [Database setup and migration](FIX_DATABASE.md)
+- [Cloud deployment preparation](docs/CLOUD_DEPLOYMENT.md)
+- [Cloud authentication design](docs/AUTHENTICATION.md)
 - [Open work and verification status](TODO.md)
 
 ## Quick start

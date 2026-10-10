@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from jayai.contracts import JobState, Limits, PolicyMode
 from jayai.db import Repository
@@ -122,10 +122,20 @@ def cancel_job(job_id: UUID, user_id: UUID = Depends(development_user), db: Repo
         if row["state"] == JobState.WAITING_FOR_APPROVAL.value:
             plan = db.get_plan(user_id, job_id)
             if plan is not None:
-                db.record_approval_decision(user_id, job_id, plan_digest(plan), "REJECTED",
-                                            "User cancelled the task during plan review")
-        db.transition_job(user_id, job_id, JobState.CANCELLED, "Cancelled by user")
-    except ValueError as exc:
+                digest = plan_digest(plan)
+                atomic_reject = getattr(db, "reject_and_cancel_plan", None)
+                if atomic_reject is not None:
+                    atomic_reject(user_id, job_id, digest,
+                                  "User cancelled the task during plan review")
+                else:  # Compatibility for narrow in-memory test repositories.
+                    db.record_approval_decision(user_id, job_id, digest, "REJECTED",
+                                                "User cancelled the task during plan review")
+                    db.transition_job(user_id, job_id, JobState.CANCELLED, "Cancelled by user")
+            else:
+                db.transition_job(user_id, job_id, JobState.CANCELLED, "Cancelled by user")
+        else:
+            db.transition_job(user_id, job_id, JobState.CANCELLED, "Cancelled by user")
+    except (LookupError, ValueError, RuntimeError, PermissionError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     row = db.get_job(user_id, job_id)
     return JobResponse.model_validate(row)
@@ -180,6 +190,8 @@ def plan_job(job_id: UUID, user_id: UUID = Depends(development_user), db: Reposi
             db.transition_job(user_id, job_id, JobState.WAITING_FOR_APPROVAL, "Awaiting user review")
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=503, detail="Local model returned an invalid plan") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -263,12 +275,17 @@ def reject_job_plan(job_id: UUID, body: Rejection, user_id: UUID = Depends(devel
     if plan is None or not compare_digest(plan_digest(plan), body.plan_sha256):
         raise HTTPException(status_code=409, detail="Plan digest does not match")
     try:
-        decision = db.record_approval_decision(user_id, job_id, body.plan_sha256,
-                                               "REJECTED", body.reason)
-        if row["state"] == JobState.WAITING_FOR_APPROVAL.value:
-            db.transition_job(user_id, job_id, JobState.CANCELLED,
-                              "User rejected the reviewed plan")
-        return {"decision": decision["decision"], "state": JobState.CANCELLED.value}
+        atomic_reject = getattr(db, "reject_and_cancel_plan", None)
+        if atomic_reject is not None:
+            atomic_reject(user_id, job_id, body.plan_sha256, body.reason)
+        else:  # Compatibility for narrow in-memory test repositories.
+            decision = db.record_approval_decision(user_id, job_id, body.plan_sha256,
+                                                   "REJECTED", body.reason)
+            if row["state"] == JobState.WAITING_FOR_APPROVAL.value:
+                db.transition_job(user_id, job_id, JobState.CANCELLED,
+                                  "User rejected the reviewed plan")
+            return {"decision": decision["decision"], "state": JobState.CANCELLED.value}
+        return {"decision": "REJECTED", "state": JobState.CANCELLED.value}
     except (LookupError, ValueError, PermissionError, RuntimeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -284,20 +301,22 @@ def run_approved_job(job_id: UUID, body: Approval, user_id: UUID = Depends(devel
         raise HTTPException(status_code=409, detail="Job has no plan awaiting approval")
     if not compare_digest(plan_digest(plan), body.plan_sha256):
         raise HTTPException(status_code=409, detail="Plan digest does not match")
-    if plan.get("action") not in ("pc_health", "pc_processes", "windows_health"):
+    if plan.get("action") not in ("pc_health", "pc_processes"):
         raise HTTPException(status_code=409, detail="Plan has no executable read-only action")
     if db.is_paused(user_id):
         raise HTTPException(status_code=409, detail="User actions paused")
     try:
-        db.record_approval_decision(user_id, job_id, body.plan_sha256, "APPROVED")
-        db.transition_job(user_id, job_id, JobState.EXECUTING, f"User approved plan {body.plan_sha256}")
+        atomic_admit = getattr(db, "admit_approved_plan", None)
+        if atomic_admit is not None:
+            atomic_admit(user_id, job_id, body.plan_sha256)
+        else:  # Compatibility for narrow in-memory test repositories.
+            db.record_approval_decision(user_id, job_id, body.plan_sha256, "APPROVED")
+            db.transition_job(user_id, job_id, JobState.EXECUTING,
+                              f"User approved plan {body.plan_sha256}")
     except (LookupError, ValueError, RuntimeError, PermissionError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
-        if plan["action"] == "windows_health":
-            from jayai.windows_bridge import diagnostics
-            report = diagnostics()
-        elif plan["action"] == "pc_processes":
+        if plan["action"] == "pc_processes":
             from jayai.maintenance import running_processes
             report = running_processes()
         else:

@@ -1,5 +1,6 @@
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -31,6 +32,24 @@ def test_repeated_findings_are_recorded_without_file_names(tmp_path):
     assert json.loads(path.read_text())["counts"] == {"old_downloads": 3}
     report["findings"] = []
     assert observe(path, report)["repeat_counts"] == {}
+
+
+def test_overlapping_observations_serialize_history_updates(tmp_path):
+    path = tmp_path / "state" / "maintenance.json"
+
+    def run(index):
+        return observe(path, {"checked_at": f"check-{index}",
+                              "scope": "Linux environment", "free_percent": 10,
+                              "findings": [{"code": "low_disk_space"}]})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reports = list(pool.map(run, range(2)))
+
+    assert all(report["repeat_counts"] for report in reports)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["counts"] == {"low_disk_space": 2}
+    assert {item["checked_at"] for item in saved["history"]} == {"check-0", "check-1"}
+    assert not list(path.parent.glob("*.tmp"))
 
 
 def test_linux_check_reports_container_scope_and_uses_xdg_state(tmp_path, monkeypatch):

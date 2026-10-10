@@ -89,3 +89,31 @@ def test_expired_job_fails_once_and_is_acknowledged():
     assert db.state == JobState.FAILED
     assert db.transitions == [JobState.FAILED]
     assert r.acked == ["1-0", "2-0"]
+
+
+def test_worker_carries_xautoclaim_cursor_across_large_pending_scan(monkeypatch):
+    import jayai.queue as queue
+
+    class RedisStub:
+        def __init__(self):
+            self.starts = []
+        def xgroup_create(self, *args, **kwargs):
+            return None
+        def xautoclaim(self, _stream, _group, _consumer, **kwargs):
+            self.starts.append(kwargs["start_id"])
+            if len(self.starts) == 1:
+                return ("11-0", [], [])
+            return ("0-0", [], [])
+        def xreadgroup(self, *args, **kwargs):
+            return []
+
+    class DbStub:
+        def reconcile_stale_active_jobs(self):
+            return 0
+
+    redis_stub = RedisStub()
+    monkeypatch.setattr(queue, "publish_pending", lambda *_args: 0)
+    queue._RECLAIM_CURSORS.clear()
+    assert run_once(DbStub(), redis_stub, "worker", block_ms=0) == 0
+    assert run_once(DbStub(), redis_stub, "worker", block_ms=0) == 0
+    assert redis_stub.starts == ["0-0", "11-0"]

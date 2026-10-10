@@ -3,7 +3,8 @@
 import os
 import re
 import hmac
-from pathlib import Path
+from datetime import datetime
+from importlib.resources import files
 from uuid import UUID, uuid4
 
 import psycopg
@@ -14,7 +15,18 @@ from psycopg.types.json import Jsonb
 from jayai.contracts import JobState, Limits, PolicyMode, SkillSpec, ToolSpec
 from jayai.plans import plan_digest
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+MIGRATIONS = files("migrations")
+
+
+def migration_resources():
+    resources = sorted(
+        (item for item in MIGRATIONS.iterdir()
+         if item.is_file() and item.name[:1].isdigit() and item.name.endswith(".sql")),
+        key=lambda item: item.name,
+    )
+    if not resources:
+        raise RuntimeError("JayAI migration SQL resources are missing")
+    return resources
 
 
 def database_url() -> str:
@@ -32,6 +44,16 @@ def database_url() -> str:
             connect_timeout="10",
         )
     url = os.environ.get("JAYAI_DATABASE_URL", "")
+    if not url and os.name != "nt" and os.path.isabs(os.environ.get("JAYAI_DB_HOST", "")):
+        # A user-owned Unix-socket cluster can authenticate locally without a
+        # password. Keep explicit password and URL configuration authoritative.
+        return make_conninfo(
+            host=os.environ["JAYAI_DB_HOST"],
+            port=os.environ.get("JAYAI_DB_PORT", "5432"),
+            dbname=os.environ.get("JAYAI_DB_NAME", "jayai"),
+            user=os.environ.get("JAYAI_DB_USER", "jayai"),
+            connect_timeout="10",
+        )
     if not url:
         raise RuntimeError("JAYAI_DATABASE_URL or JAYAI_DB_PASSWORD is required")
     # psycopg expects postgresql://, while some configuration uses SQLAlchemy's dialect prefix.
@@ -54,7 +76,7 @@ def migrate(url: str | None = None) -> list[str]:
             conn.execute("SELECT pg_advisory_xact_lock(747165)")
             conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
             existing = {row[0] for row in conn.execute("SELECT name FROM schema_migrations")}
-            for path in sorted(MIGRATIONS.glob("[0-9]*.sql")):
+            for path in migration_resources():
                 if path.name in existing:
                     continue
                 conn.execute(path.read_text(encoding="utf-8"))
@@ -66,6 +88,61 @@ def migrate(url: str | None = None) -> list[str]:
 class Repository:
     def __init__(self, url: str | None = None) -> None:
         self.url = url or database_url()
+
+    def create_auth_session(self, user_id: UUID, token_hash: str, expires_at: datetime) -> UUID:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            raise ValueError("Invalid session token hash")
+        session_id = uuid4()
+        with psycopg.connect(self.url) as conn:
+            conn.execute(
+                "INSERT INTO auth_sessions (id,user_id,token_hash,expires_at) VALUES (%s,%s,%s,%s)",
+                (session_id, user_id, token_hash, expires_at),
+            )
+        return session_id
+
+    def get_auth_session(self, token_hash: str) -> dict | None:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            return None
+        with psycopg.connect(self.url, row_factory=dict_row) as conn:
+            row = conn.execute(
+                "SELECT id,user_id,issued_at,expires_at,last_seen_at,revoked_at "
+                "FROM auth_sessions WHERE token_hash=%s AND revoked_at IS NULL "
+                "AND expires_at > now()", (token_hash,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def touch_auth_session(self, token_hash: str) -> bool:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            return False
+        with psycopg.connect(self.url) as conn:
+            return conn.execute(
+                "UPDATE auth_sessions SET last_seen_at=now() WHERE token_hash=%s "
+                "AND revoked_at IS NULL AND expires_at > now() RETURNING id", (token_hash,),
+            ).fetchone() is not None
+
+    def revoke_auth_session(self, token_hash: str) -> bool:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            return False
+        with psycopg.connect(self.url) as conn:
+            return conn.execute(
+                "UPDATE auth_sessions SET revoked_at=now() WHERE token_hash=%s "
+                "AND revoked_at IS NULL RETURNING id", (token_hash,),
+            ).fetchone() is not None
+
+    def revoke_user_sessions(self, user_id: UUID) -> int:
+        with psycopg.connect(self.url) as conn:
+            return len(conn.execute(
+                "UPDATE auth_sessions SET revoked_at=now() WHERE user_id=%s "
+                "AND revoked_at IS NULL RETURNING id", (user_id,),
+            ).fetchall())
+
+    def find_oidc_identity(self, issuer: str, subject: str) -> UUID | None:
+        with psycopg.connect(self.url) as conn:
+            row = conn.execute(
+                "SELECT user_id FROM oidc_identities WHERE issuer=%s AND subject=%s",
+                (issuer, subject),
+            ).fetchone()
+            return row[0] if row else None
 
     def create_user(self) -> UUID:
         user_id = uuid4()
@@ -177,6 +254,127 @@ class Repository:
             return {"id": event_id, "decision": decision, "reason": reason,
                     "plan_sha256": digest}
 
+    def admit_approved_plan(self, user_id: UUID, job_id: UUID, digest: str) -> None:
+        """Record approval and admit the job in one transaction."""
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Invalid approval decision")
+        with psycopg.connect(self.url, row_factory=dict_row) as conn:
+            control = conn.execute(
+                "SELECT paused, unlimited_limits FROM user_controls WHERE user_id=%s FOR UPDATE",
+                (user_id,),
+            ).fetchone()
+            if control is None:
+                raise LookupError("user control not found")
+            if control["paused"]:
+                raise PermissionError("User actions paused")
+            row = conn.execute(
+                "SELECT j.state, j.limits, j.created_at, p.plan FROM jobs j "
+                "JOIN job_plans p ON p.job_id=j.id AND p.user_id=j.user_id "
+                "WHERE j.id=%s AND j.user_id=%s FOR UPDATE OF j",
+                (job_id, user_id),
+            ).fetchone()
+            if row is None:
+                raise LookupError("job or plan not found")
+            if row["state"] != JobState.WAITING_FOR_APPROVAL.value:
+                raise ValueError("Job has no plan awaiting approval")
+            if not hmac.compare_digest(plan_digest(row["plan"]), digest):
+                raise ValueError("Plan digest does not match")
+            if row["plan"].get("action") not in ("pc_health", "pc_processes"):
+                raise ValueError("Plan has no executable read-only action")
+            if not control["unlimited_limits"]:
+                limits = Limits.model_validate(row["limits"])
+                count = conn.execute("SELECT count(*) AS n FROM job_steps WHERE job_id=%s", (job_id,)).fetchone()["n"]
+                if count >= limits.max_steps:
+                    raise RuntimeError("Job step limit reached")
+                if conn.execute("SELECT EXTRACT(EPOCH FROM (now() - %s)) > %s",
+                                 (row["created_at"], limits.max_runtime_seconds)).fetchone()[0]:
+                    raise RuntimeError("Job runtime limit reached")
+            if conn.execute("SELECT 1 FROM approval_decisions WHERE job_id=%s AND user_id=%s AND plan_sha256=%s",
+                            (job_id, user_id, digest)).fetchone() is not None:
+                raise ValueError("An approval decision is already recorded for this plan")
+            conn.execute(
+                "INSERT INTO approval_decisions (id,job_id,user_id,plan_sha256,decision,reason) VALUES (%s,%s,%s,%s,'APPROVED','')",
+                (uuid4(), job_id, user_id, digest),
+            )
+            conn.execute(
+                "INSERT INTO audit_events (id,user_id,job_id,event_type,details) VALUES (%s,%s,%s,%s,%s)",
+                (uuid4(), user_id, job_id, "job.plan.approved", Jsonb({"plan_sha256": digest})),
+            )
+            count = conn.execute("SELECT count(*) AS n FROM job_steps WHERE job_id=%s", (job_id,)).fetchone()["n"]
+            conn.execute("UPDATE jobs SET state=%s, updated_at=now() WHERE id=%s AND user_id=%s",
+                         (JobState.EXECUTING.value, job_id, user_id))
+            conn.execute("INSERT INTO job_steps (id,job_id,ordinal,state,input) VALUES (%s,%s,%s,%s,%s)",
+                         (uuid4(), job_id, count, JobState.EXECUTING.value,
+                          Jsonb({"reason": f"User approved plan {digest}"})))
+            conn.execute(
+                "INSERT INTO audit_events (id,user_id,job_id,event_type,details) VALUES (%s,%s,%s,%s,%s)",
+                (uuid4(), user_id, job_id, "job.transition",
+                 Jsonb({"from": JobState.WAITING_FOR_APPROVAL.value, "to": JobState.EXECUTING.value})),
+            )
+
+    def reject_and_cancel_plan(self, user_id: UUID, job_id: UUID, digest: str, reason: str) -> None:
+        """Record rejection and cancellation atomically for a reviewed plan."""
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Invalid approval decision")
+        if len(reason) > 500:
+            raise ValueError("Decision reason exceeds 500 characters")
+        with psycopg.connect(self.url, row_factory=dict_row) as conn:
+            row = conn.execute(
+                "SELECT j.state, p.plan FROM jobs j JOIN job_plans p ON p.job_id=j.id AND p.user_id=j.user_id "
+                "WHERE j.id=%s AND j.user_id=%s FOR UPDATE OF j", (job_id, user_id)
+            ).fetchone()
+            if row is None:
+                raise LookupError("job or plan not found")
+            if row["state"] != JobState.WAITING_FOR_APPROVAL.value:
+                raise ValueError("Job has no plan awaiting approval")
+            if not hmac.compare_digest(plan_digest(row["plan"]), digest):
+                raise ValueError("Plan digest does not match")
+            conn.execute(
+                "INSERT INTO approval_decisions (id,job_id,user_id,plan_sha256,decision,reason) VALUES (%s,%s,%s,%s,'REJECTED',%s)",
+                (uuid4(), job_id, user_id, digest, reason),
+            )
+            conn.execute(
+                "INSERT INTO audit_events (id,user_id,job_id,event_type,details) VALUES (%s,%s,%s,%s,%s)",
+                (uuid4(), user_id, job_id, "job.plan.rejected",
+                 Jsonb({"plan_sha256": digest, "reason": reason})),
+            )
+            count = conn.execute("SELECT count(*) AS n FROM job_steps WHERE job_id=%s", (job_id,)).fetchone()["n"]
+            conn.execute("UPDATE jobs SET state=%s, updated_at=now() WHERE id=%s AND user_id=%s",
+                         (JobState.CANCELLED.value, job_id, user_id))
+            conn.execute("INSERT INTO job_steps (id,job_id,ordinal,state,input) VALUES (%s,%s,%s,%s,%s)",
+                         (uuid4(), job_id, count, JobState.CANCELLED.value,
+                          Jsonb({"reason": "User rejected the reviewed plan"})))
+            conn.execute(
+                "INSERT INTO audit_events (id,user_id,job_id,event_type,details) VALUES (%s,%s,%s,%s,%s)",
+                (uuid4(), user_id, job_id, "job.transition",
+                 Jsonb({"from": JobState.WAITING_FOR_APPROVAL.value, "to": JobState.CANCELLED.value})),
+            )
+
+    def reconcile_stale_active_jobs(self, stale_after_seconds: int = 300) -> int:
+        """Fail interrupted active jobs; never replay or verify their work."""
+        if stale_after_seconds < 1:
+            raise ValueError("stale_after_seconds must be positive")
+        active = [state.value for state in (JobState.EXECUTING, JobState.OBSERVING, JobState.VERIFYING)]
+        with psycopg.connect(self.url, row_factory=dict_row) as conn:
+            rows = conn.execute(
+                "SELECT id,user_id,state FROM jobs WHERE state = ANY(%s) "
+                "AND updated_at < now() - (%s * interval '1 second') FOR UPDATE SKIP LOCKED",
+                (active, stale_after_seconds),
+            ).fetchall()
+            reason = "Interrupted during active execution; no replay was attempted"
+            for row in rows:
+                count = conn.execute("SELECT count(*) AS n FROM job_steps WHERE job_id=%s", (row["id"],)).fetchone()["n"]
+                conn.execute("UPDATE jobs SET state=%s,updated_at=now() WHERE id=%s AND state=%s",
+                             (JobState.FAILED.value, row["id"], row["state"]))
+                conn.execute("INSERT INTO job_steps (id,job_id,ordinal,state,input) VALUES (%s,%s,%s,%s,%s)",
+                             (uuid4(), row["id"], count, JobState.FAILED.value, Jsonb({"reason": reason})))
+                conn.execute(
+                    "INSERT INTO audit_events (id,user_id,job_id,event_type,details) VALUES (%s,%s,%s,%s,%s)",
+                    (uuid4(), row["user_id"], row["id"], "job.interrupted",
+                     Jsonb({"from": row["state"], "to": JobState.FAILED.value, "reason": reason})),
+                )
+            return len(rows)
+
     def get_approval_decision(self, user_id: UUID, job_id: UUID) -> dict | None:
         with psycopg.connect(self.url, row_factory=dict_row) as conn:
             row = conn.execute(
@@ -270,14 +468,21 @@ class Repository:
             control = conn.execute("SELECT paused, unlimited_limits FROM user_controls WHERE user_id = %s FOR UPDATE", (user_id,)).fetchone()
             if control is None:
                 raise RuntimeError("User control missing")
-            if control["paused"] and target not in (JobState.FAILED, JobState.CANCELLED):
-                raise RuntimeError("User actions paused")
             # Row lock serializes concurrent workers; state, step and audit commit together.
             row = conn.execute("SELECT state, limits, created_at FROM jobs WHERE id = %s AND user_id = %s FOR UPDATE",
                                (job_id, user_id)).fetchone()
             if row is None:
                 raise LookupError("job not found")
             current = JobState(row["state"])
+            # Pausing blocks admission and any new action, but it must not
+            # strand an action that was already admitted before the pause.
+            # Only the forward bookkeeping edges of an active action are
+            # allowed here; cancellation remains available separately.
+            completing_active = current in (
+                JobState.EXECUTING, JobState.OBSERVING, JobState.VERIFYING
+            ) and target in (JobState.OBSERVING, JobState.VERIFYING, JobState.COMPLETED)
+            if control["paused"] and target not in (JobState.FAILED, JobState.CANCELLED) and not completing_active:
+                raise RuntimeError("User actions paused")
             validate_transition(current, target)
             limits = Limits.model_validate(row["limits"])
             count = conn.execute("SELECT count(*) AS n FROM job_steps WHERE job_id = %s", (job_id,)).fetchone()["n"]
@@ -294,9 +499,9 @@ class Repository:
             conn.execute("INSERT INTO audit_events (id, user_id, job_id, event_type, details) VALUES (%s, %s, %s, %s, %s)",
                          (uuid4(), user_id, job_id, "job.transition", Jsonb({"from": current.value, "to": target.value})))
             if target in (JobState.COMPLETED, JobState.FAILED):
-                action = conn.execute("SELECT plan->>'action' FROM job_plans WHERE job_id=%s AND user_id=%s",
+                action = conn.execute("SELECT plan->>'action' AS action FROM job_plans WHERE job_id=%s AND user_id=%s",
                                       (job_id, user_id)).fetchone()
-                kind = action[0] if action and action[0] in ("pc_health", "pc_processes", "windows_health") else "unknown"
+                kind = action["action"] if action and action["action"] in ("pc_health", "pc_processes") else "unknown"
                 outcome = "VERIFIED" if target == JobState.COMPLETED else "FAILED"
                 if target == JobState.COMPLETED and conn.execute(
                         "SELECT 1 FROM job_results WHERE job_id=%s AND user_id=%s", (job_id, user_id)).fetchone() is None:

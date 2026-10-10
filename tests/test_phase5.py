@@ -1,3 +1,5 @@
+import time
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -92,3 +94,31 @@ def test_pause_blocks_tool_before_execution_and_audit_start():
     with pytest.raises(PermissionError, match="paused"):
         registry.invoke(user, "text.summary", "text.count_words", {"text": "hello"})
     assert store.calls == []
+
+
+def test_registry_enforces_tool_timeout_and_finishes_failed_call():
+    store = MemoryStore()
+    store.modes = ["APPROVE_SCOPE"]
+    user = uuid4()
+    registry = built_in_registry(store)
+    registry.install(user, text_skill())
+    spec, _ = registry.tools["text.count_words"]
+    finished = Event()
+
+    def slow(_user, _inputs):
+        try:
+            time.sleep(1.2)
+            return {"count": 1}
+        finally:
+            finished.set()
+
+    registry.tools["text.count_words"] = (
+        spec.model_copy(update={"timeout_seconds": 1}), slow
+    )
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="timed out"):
+        registry.invoke(user, "text.summary", "text.count_words", {"text": "hello"})
+    assert time.monotonic() - started < 1.1
+    assert store.calls == ["STARTED", "FAILED"]
+    assert finished.wait(1)
+    assert store.calls == ["STARTED", "FAILED"]

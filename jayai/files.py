@@ -1,5 +1,7 @@
 """Small UTF-8 files confined to a separate directory for each user."""
 
+import os
+import stat
 from pathlib import Path, PureWindowsPath
 from uuid import UUID
 
@@ -9,6 +11,20 @@ from jayai.registry import Registry
 MAX_BYTES = 1_000_000
 
 
+def _is_junction(path: Path) -> bool:
+    """Detect reparse-point junctions on supported Python versions."""
+    checker = getattr(path, "is_junction", None)
+    if checker is not None:
+        return checker()
+    if os.name != "nt":
+        return False
+    try:
+        attributes = path.lstat().st_file_attributes
+    except OSError:
+        return False
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
 class UserWorkspace:
     def __init__(self, base: Path):
         self.base = base.expanduser().resolve()
@@ -16,7 +32,13 @@ class UserWorkspace:
 
     def _root(self, user_id: UUID) -> Path:
         root = self.base / str(user_id)
-        root.mkdir(exist_ok=True)
+        # Reject linked user roots before resolving them.
+        if root.is_symlink() or _is_junction(root):
+            raise PermissionError("Linked user workspace roots are not allowed")
+        if not root.exists():
+            root.mkdir()
+        if root.is_symlink() or _is_junction(root):
+            raise PermissionError("Linked user workspace roots are not allowed")
         resolved = root.resolve()
         if not resolved.is_relative_to(self.base) or resolved == self.base:
             raise PermissionError("User workspace escapes configured root")
@@ -32,7 +54,7 @@ class UserWorkspace:
         if not candidate.resolve().is_relative_to(root):
             raise PermissionError("Path escapes user workspace")
         for component in (root, *[root.joinpath(*parts[:i]) for i in range(1, len(parts) + 1)]):
-            if component.is_symlink() or component.is_junction():
+            if component.is_symlink() or _is_junction(component):
                 raise PermissionError("Linked paths are not allowed")
         return candidate
 
@@ -53,7 +75,7 @@ class UserWorkspace:
 
     def list(self, user_id: UUID) -> dict:
         root = self._root(user_id)
-        names = [p.name for p in root.iterdir() if p.is_file() and not p.is_symlink() and not p.is_junction()]
+        names = [p.name for p in root.iterdir() if p.is_file() and not p.is_symlink() and not _is_junction(p)]
         return {"names": sorted(names)[:1000]}
 
 

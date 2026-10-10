@@ -81,7 +81,7 @@ def test_approved_process_list_is_read_only_and_saved(monkeypatch):
     monkeypatch.setenv("JAYAI_DEV_API_KEY", key)
     monkeypatch.setenv("JAYAI_DEV_USER_ID", str(user))
     monkeypatch.setattr("jayai.maintenance.running_processes", lambda: {
-        "scope": "Windows PC", "checked_at": "2026-09-27T00:00:00+00:00",
+        "scope": "Linux environment", "checked_at": "2026-09-27T00:00:00+00:00",
         "processes": [{"name": "Explorer", "id": 42}]})
     app.dependency_overrides[repository] = lambda: db
     try:

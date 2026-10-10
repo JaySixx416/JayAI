@@ -72,3 +72,14 @@ connectors, expiring/revocable sessions, reviewable routines, carefully
 bounded change recipes with rollback, and opt-in learning improvements. Each
 requires separate design, adversarial tests, and live verification before it
 becomes an enabled feature. None is part of the 0.25.0 supported workflow.
+
+## Cloud-readiness preparation
+
+- [x] Document private-VPN-first deployment and the required production gates.
+- [ ] Replace the development dashboard key with expiring, revocable sessions.
+- [ ] Add an isolated cloud-like deployment test environment.
+- [ ] Verify PostgreSQL/Redis concurrency, restart recovery, backups, and
+  restore procedures outside the existing user database.
+- [ ] Add deployment health checks, supervision, secret management, and
+  rate-limited HTTPS access.
+- [ ] Decide and verify the private model-inference placement and cost.

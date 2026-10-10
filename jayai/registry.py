@@ -1,5 +1,8 @@
 """Server-owned tools, user-installed skill manifests, and deny-by-default policy."""
 
+from queue import Queue
+from threading import Event, Thread
+from typing import Any
 from collections.abc import Callable
 from enum import StrEnum
 from uuid import UUID
@@ -14,6 +17,38 @@ class Decision(StrEnum):
     ALLOW = "ALLOW"
     WAIT_FOR_APPROVAL = "WAIT_FOR_APPROVAL"
     DENY = "DENY"
+
+
+class ToolTimeoutError(TimeoutError):
+    """The registry caller stopped waiting; the underlying thread may continue."""
+
+
+def _run_bounded(operation: Callable[[UUID, dict], dict], user_id: UUID,
+                 inputs: dict, timeout_seconds: int) -> dict:
+    """Bound the caller and retain failure bookkeeping for non-cooperative tools.
+
+    A Python thread cannot be safely killed. Timed-out operations therefore run
+    as daemon work with no success path after the caller records failure.
+    Consequential connectors require a stronger process/cooperative boundary.
+    """
+    completed = Event()
+    outcome: Queue[tuple[bool, Any]] = Queue(maxsize=1)
+
+    def run() -> None:
+        try:
+            outcome.put((True, operation(user_id, inputs)))
+        except Exception as exc:
+            outcome.put((False, exc))
+        finally:
+            completed.set()
+
+    Thread(target=run, name="jayai-tool", daemon=True).start()
+    if not completed.wait(timeout_seconds):
+        raise ToolTimeoutError(f"Tool timed out after {timeout_seconds} seconds")
+    success, value = outcome.get()
+    if not success:
+        raise value
+    return value
 
 
 def decide(permission: PermissionSpec, modes: list[str], requires_approval: bool = False) -> Decision:
@@ -90,7 +125,7 @@ class Registry:
         call_id = self.repository.start_tool_call(user_id, skill_id, tool_id, job_id, idempotency_key) \
             if job_id is not None else self.repository.start_tool_call(user_id, skill_id, tool_id)
         try:
-            result = operation(user_id, inputs)
+            result = _run_bounded(operation, user_id, inputs, spec.timeout_seconds)
             validate(result, spec.output_schema)
         except Exception:
             self.repository.finish_tool_call(user_id, call_id, success=False)

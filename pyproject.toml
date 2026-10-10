@@ -13,7 +13,8 @@ test = ["pytest==8.3.4", "httpx==0.28.1", "redis==5.2.1"]
 browser = ["playwright==1.57.0"]
 
 [tool.setuptools.packages.find]
-include = ["jayai*"]
+include = ["jayai*", "migrations*"]
 
 [tool.setuptools.package-data]
 jayai = ["dashboard.html", "music.html"]
+migrations = ["*.sql"]

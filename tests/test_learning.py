@@ -69,10 +69,10 @@ def test_learning_api_is_user_scoped_editable_and_erasable(monkeypatch):
             assert saved.status_code == 200 and saved.json()["explicit"] is True
             corrected = client.put("/learning/answer_style", headers=headers,
                                    json={"kind": "format", "source": "USER_CORRECTION",
-                                         "observation": "Label commands Windows PC or Chromebook."})
+                                         "observation": "Label commands for this Linux environment."})
             assert corrected.status_code == 200
             view = client.get("/learning", headers=headers).json()
-            assert view["records"][0]["observation"] == "Label commands Windows PC or Chromebook."
+            assert view["records"][0]["observation"] == "Label commands for this Linux environment."
             assert view["repeat_patterns"] == [{"task_kind": "pc_health", "verified_count": 2}]
             assert len(view["routine_suggestions"]) == 1
             suggestion = view["routine_suggestions"][0]

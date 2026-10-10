@@ -51,7 +51,7 @@
         <section class="card" aria-labelledby="tasks-title"><div class="cardhead"><div><span class="eyebrow">Activity</span><h2 id="tasks-title">Recent tasks</h2></div><button id="refresh" class="button secondary small" type="button" disabled>Refresh</button></div><div id="jobs" class="list"><p class="empty">Connect to see your tasks.</p></div></section>
       </div>
       <div class="stack">
-        <section class="card" aria-labelledby="connect-title"><div class="cardhead"><div><span class="eyebrow">Access</span><h2 id="connect-title">Connect this tab</h2></div></div><p class="muted">Enter the dashboard key printed in the Terminal where you started JayAI. It stays in this tab and is not saved in browser storage.</p><div class="connectbox"><label class="formlabel" for="key">Dashboard key</label><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key"><div class="actions"><button id="connect" class="button" type="button">Connect</button></div><div id="connection" class="status" role="status" aria-live="polite"></div></div></section>
+        <section class="card" aria-labelledby="connect-title"><div class="cardhead"><div><span class="eyebrow">Access</span><h2 id="connect-title">Connect this browser</h2></div></div><p class="muted">Enter the current dashboard key. It stays in this tab only and is not saved in browser storage.</p><div class="connectbox"><label class="formlabel" for="key">Dashboard key</label><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key"><div class="actions"><button id="connect" class="button" type="button">Connect</button></div><div id="connection" class="status" role="status" aria-live="polite"></div></div></section>
         <section class="card" aria-labelledby="review-title"><div class="cardhead"><div><span class="eyebrow">02 / Review</span><h2 id="review-title">Task details</h2></div><span id="taskState" class="pill wait" hidden></span></div>
           <div id="selected" class="empty">Create a task or select one from Recent tasks.</div>
           <div id="detail" class="detail" hidden><div id="taskGoal" class="headline"></div><div id="plan" class="inner"><h3>Plan</h3><p>No plan yet.</p></div><div class="actions"><button id="makePlan" class="button secondary" type="button">Create plan</button><button id="run" class="button" type="button" disabled>Approve &amp; run check</button><button id="reject" class="button danger" type="button" disabled>Reject plan</button><button id="cancel" class="button danger" type="button">Cancel task</button></div><div id="result" class="inner"><h3>Result</h3><p>No result yet.</p></div></div>
@@ -59,7 +59,7 @@
         </section>
         <section class="card" aria-labelledby="control-title"><div class="controlrow"><div><span class="eyebrow">Safety control</span><h2 id="control-title">Your stop switch</h2><p id="controlText" class="muted">Connect to see its status.</p></div><span id="controlBadge" class="pill wait">Unknown</span></div><div class="actions" style="margin-top:18px"><button id="pause" class="button danger" type="button" disabled>Pause actions</button><button id="resume" class="button secondary" type="button" disabled>Resume</button></div><div class="footnote">Pausing prevents new actions. An action already running may finish.</div></section>
         <section class="card" aria-labelledby="learning-title"><div class="cardhead"><div><span class="eyebrow">Learning</span><h2 id="learning-title">Preferences you chose to save</h2></div><div class="actions"><button id="exportLearning" class="button secondary small" type="button" disabled>Export learning</button><button id="clearLearning" class="button danger small" type="button" disabled>Clear learning</button></div></div><p class="muted">JayAI saves only notes you add here and brief success or failure categories. Do not enter passwords, keys, private messages, or file contents. Nothing learned grants permission.</p><label class="formlabel" for="memoryKey">Preference name</label><input id="memoryKey" maxlength="64" placeholder="response_style"><label class="formlabel" for="memoryKind">Type</label><select id="memoryKind"><option value="format">Answer format</option><option value="workflow">Workflow</option><option value="environment">Device or app preference</option><option value="accessibility">Accessibility</option></select><label class="formlabel" for="memorySource">Record as</label><select id="memorySource"><option value="USER_STATED">Something I stated</option><option value="USER_CORRECTION">A correction to a saved preference</option></select><label class="formlabel" for="memoryObservation">Preference</label><textarea id="memoryObservation" maxlength="500" placeholder="Example: Show terminal commands for the device I'm using."></textarea><div class="actions" style="margin-top:12px"><button id="saveLearning" class="button secondary" type="button" disabled>Save preference</button></div><div id="learningList" class="list" style="margin-top:14px"><p class="empty">Connect to inspect saved preferences.</p></div><div id="learningStatus" class="status" role="status" aria-live="polite"></div></section>
-        <section class="card" aria-labelledby="history-title"><div class="cardhead"><div><span class="eyebrow">PC checks</span><h2 id="history-title">Recent health history</h2></div></div><p class="muted">Read-only summaries. Each entry identifies whether it covers Windows or the Linux environment.</p><div id="healthHistory" class="list"><p class="empty">Connect to inspect recent checks.</p></div></section>
+        <section class="card" aria-labelledby="history-title"><div class="cardhead"><div><span class="eyebrow">Linux checks</span><h2 id="history-title">Recent health history</h2></div></div><p class="muted">Read-only summaries for this Linux environment.</p><div id="healthHistory" class="list"><p class="empty">Connect to inspect recent checks.</p></div></section>
       </div>
     </div>
   </main>
@@ -68,7 +68,7 @@
   const el = id => document.getElementById(id);
   let current = null, currentPlan = null, connected = false, paused = true, busy = false;
   const terminal = ['COMPLETED','FAILED','CANCELLED'];
-  const runnable = ['pc_health','pc_processes','windows_health'];
+  const runnable = ['pc_health','pc_processes'];
   const stateName = state => ({RECEIVED:'New',PLANNING:'Planning',WAITING_FOR_APPROVAL:'Needs review',EXECUTING:'Running',OBSERVING:'Checking',VERIFYING:'Verifying',COMPLETED:'Completed',FAILED:'Failed',CANCELLED:'Cancelled'})[state] || state;
 
   function controls(){
@@ -89,7 +89,9 @@
   async function api(path, method='GET', body){
     const key=el('key').value.trim();if(!key)throw Error('Enter your dashboard key first.');
     const response=await fetch(path,{method,headers:{'X-JayAI-Key':key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
-    const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Request failed.');return data;
+    const raw=await response.text();let data;
+    try{data=raw?JSON.parse(raw):null}catch{throw Error(response.ok?'Server returned an invalid response.':'Request failed ('+response.status+').')}
+    if(!response.ok)throw Error(typeof data?.detail==='string'?data.detail:'Request failed ('+response.status+').');return data;
   }
   async function action(work, loading){
     if(busy)return;busy=true;controls();notice(loading);
@@ -102,7 +104,7 @@
     if(!plan){box.append(text('p','No plan yet. Create one to review the next step.'));return}
     box.append(text('p',plan.summary));const steps=document.createElement('ol');
     for(const step of plan.steps)steps.append(text('li',step));box.append(steps);
-    const label=plan.action==='windows_health'?'Read-only Windows laptop diagnostics':plan.action==='pc_health'?'Read-only PC health check':plan.action==='pc_processes'?'Read-only running process list':'No runnable action';
+    const label=plan.action==='pc_health'?'Read-only Linux health check':plan.action==='pc_processes'?'Read-only running process list':'No runnable action';
     box.append(text('span','Proposed action: '+label,'kicker'));
     if(plan.expected_evidence?.length){box.append(text('span','JayAI will verify:','kicker'));const evidence=document.createElement('ul');for(const item of plan.expected_evidence)evidence.append(text('li',item));box.append(evidence)}
   }
@@ -110,20 +112,10 @@
     const box=el('result');box.replaceChildren(text('h3','Result'));
     if(!result){box.append(text('p','The verified result will appear here after an approved check.'));return}
     const report=result.report;
-    if(result.kind==='windows_health'){
-      box.append(text('p','Windows laptop free disk space: '+report.free_percent+'%'));
-      if(report.updates)box.append(text('p','Windows Update: '+report.updates.start_type+(report.updates.reboot_required?' · Restart required':'')));
-      box.append(text('p','Startup entries: '+report.startup.length+' · Recent system errors: '+report.recent_errors.length));
-      for(const entry of report.startup)box.append(text('p','Startup: '+entry.name+' · '+entry.location));
-      for(const entry of report.recent_errors)box.append(text('p','System error '+entry.id+' · '+entry.source+' · '+entry.time));
-      if(report.package_updates.length){box.append(text('h3','Available package updates (read-only list)'));for(const line of report.package_updates)box.append(text('p',line))}
-      if(report.findings.length){for(const finding of report.findings)box.append(text('p',finding.message))}else box.append(text('p','No findings reported.'));
-      box.append(text('p','No updates or settings were changed. Review findings before taking action.'));
-    }else if(result.kind==='pc_health'){
+    if(result.kind==='pc_health'){
       box.append(text('p','Free disk space: '+report.free_percent+'%'));
       box.append(text('p','Older Downloads files: '+report.old_downloads_count));
-      if(report.updates)box.append(text('p','Windows Update: '+report.updates.start_type+(report.updates.reboot_required?' · Restart required':'')));
-      else if(report.scope==='Linux environment')box.append(text('p','ChromeOS update status is not available from the Linux environment.'));
+      box.append(text('p','ChromeOS update status is not available from the Linux environment.'));
       if(report.update_error)box.append(text('p','Update check: '+report.update_error));
       if(report.findings?.length){for(const finding of report.findings)box.append(text('p',finding.message))}
       else box.append(text('p','No findings reported.'));
@@ -169,7 +161,6 @@
       const row=document.createElement('div');row.className='inner';
       row.append(text('strong',item.scope+' · '+(item.checked_at||'Time unavailable')));
       row.append(text('p',item.free_percent===null?'Free storage unavailable':'Free storage: '+item.free_percent+'%','muted'));
-      if(item.update_start_type)row.append(text('p','Windows Update: '+item.update_start_type+' · Restart pending: '+(item.reboot_required?'Yes':'No'),'muted'));
       row.append(text('p',item.finding_codes.length?'Findings: '+item.finding_codes.join(', '):'No findings recorded.','muted'));
       list.append(row);
     }
@@ -198,13 +189,27 @@
     if(current){const updated=jobs.find(job=>job.id===current.id);if(updated)await select(updated);else{current=null;currentPlan=null;el('detail').hidden=true;el('selected').hidden=false;el('taskState').hidden=true}}
     controls();
   }
-  el('connect').onclick=()=>action(async()=>{connected=false;controls();try{await refresh();connected=true;el('connection').textContent='Connected for this tab.'}catch(error){el('connection').textContent='Connection failed.';el('mode').textContent='Not connected';el('mode').className='pill wait';throw error}finally{controls()}},'Connecting…');
+
+  el('connect').onclick=()=>action(async()=>{
+    connected=false;controls();
+    try {
+      await refresh();
+      connected=true;
+      el('connection').textContent='Connected for this tab. The key is not saved in browser storage.';
+    } catch(error) {
+      el('connection').textContent='Connection failed. Check the key and server.';
+      el('mode').textContent='Not connected';
+      el('mode').className='pill wait';
+      throw error;
+    } finally { controls(); }
+  },'Connecting…');
+
   el('refresh').onclick=()=>action(refresh,'Refreshing tasks…');
   el('pause').onclick=()=>action(async()=>{await api('/control/pause','POST');await refresh()},'Pausing new actions…');
   el('resume').onclick=()=>action(async()=>{await api('/control/resume','POST');await refresh()},'Resuming…');
   el('create').onclick=()=>action(async()=>{const goal=el('goal').value.trim();if(!goal)throw Error('Describe a task first.');const job=await api('/jobs','POST',{goal});el('goal').value='';await refresh();await select(job)},'Creating task…');
-  el('makePlan').onclick=()=>action(async()=>{if(!current)throw Error('Choose a task first.');await api('/jobs/'+current.id+'/plan','POST');await refresh()},'Making a plan on your PC. The first request may take a minute…');
-  el('run').onclick=()=>action(async()=>{if(!current||!currentPlan)throw Error('Review a plan first.');const label=currentPlan.action==='windows_health'?'inspect the Windows laptop':currentPlan.action==='pc_processes'?'list up to 30 running processes':'check PC health';if(!confirm('Approve this exact plan to '+label+'?'))return;await api('/jobs/'+current.id+'/run','POST',{plan_sha256:currentPlan.sha256});await refresh()},'Running approved read-only check…');
+  el('makePlan').onclick=()=>action(async()=>{if(!current)throw Error('Choose a task first.');await api('/jobs/'+current.id+'/plan','POST');await refresh()},'Making a Linux plan. The first request may take a minute…');
+  el('run').onclick=()=>action(async()=>{if(!current||!currentPlan)throw Error('Review a plan first.');const label=currentPlan.action==='pc_processes'?'list up to 30 running processes':'check Linux health';if(!confirm('Approve this exact plan to '+label+'?'))return;await api('/jobs/'+current.id+'/run','POST',{plan_sha256:currentPlan.sha256});await refresh()},'Running approved read-only check…');
   el('cancel').onclick=()=>action(async()=>{if(!current)throw Error('Choose a task first.');await api('/jobs/'+current.id+'/cancel','POST');await refresh()},'Cancelling task…');
   el('reject').onclick=()=>action(async()=>{if(!current||!currentPlan)throw Error('Review a plan first.');if(!confirm('Reject this exact plan? The task will be cancelled and the decision recorded.'))return;await api('/jobs/'+current.id+'/reject','POST',{plan_sha256:currentPlan.sha256,reason:'Rejected by user in dashboard'});await refresh()},'Recording rejection…');
   el('saveLearning').onclick=()=>action(async()=>{const key=el('memoryKey').value.trim();const body={kind:el('memoryKind').value,source:el('memorySource').value,observation:el('memoryObservation').value.trim()};await api('/learning/'+encodeURIComponent(key),'PUT',body);el('memorySource').disabled=false;el('learningStatus').textContent='Saved only to this account.';await refresh()},'Saving your preference…');
@@ -212,6 +217,18 @@
   el('clearLearning').onclick=()=>action(async()=>{if(!confirm('Delete all saved preferences and outcome categories for this account?'))return;await api('/learning','DELETE');await refresh()},'Clearing learning…');
   for(const chip of document.querySelectorAll('[data-goal]'))chip.onclick=()=>{el('goal').value=chip.dataset.goal;el('goal').focus()};
   controls();
+
+  const forgetKey=document.createElement('button');
+  forgetKey.type='button';
+  forgetKey.className='button secondary';
+  forgetKey.textContent='Clear entered key';
+  forgetKey.onclick=()=>{
+    if(busy)return;
+    el('key').value='';
+    location.reload();
+  };
+  el('connect').parentElement.append(forgetKey);
+
 </script>
 </body>
 </html>

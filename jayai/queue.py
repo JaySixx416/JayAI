@@ -17,6 +17,7 @@ from jayai.engine import Engine
 STREAM = "jayai:jobs:v1"
 GROUP = "jayai:workers:v1"
 LOG = logging.getLogger(__name__)
+_RECLAIM_CURSORS: dict[str, str] = {}
 
 
 def client() -> redis.Redis:
@@ -95,11 +96,29 @@ def process_entry(db: Repository, r: redis.Redis, entry_id: str, fields: dict) -
 
 def run_once(db: Repository, r: redis.Redis, consumer: str, block_ms: int = 1000) -> int:
     group_ready(r)
+    # A restart can leave synchronous execution between durable transitions.
+    # Mark old active jobs failed with an audit reason; never replay or verify.
+    reconcile = getattr(db, "reconcile_stale_active_jobs", None)
+    if reconcile is not None:
+        reconcile()
     publish_pending(db, r)
-    # Recover abandoned pending entries before reading new work.
-    _, claimed, *_ = r.xautoclaim(STREAM, GROUP, consumer, min_idle_time=30000, start_id="0-0", count=10)
+    # Recover abandoned pending entries before reading new work. XAUTOCLAIM
+    # returns a continuation ID; retain it so a large pending set is scanned
+    # across worker iterations instead of restarting at the first ten entries.
+    cursor_key = consumer
+    start_id = _RECLAIM_CURSORS.get(cursor_key, "0-0")
+    reclaimed = r.xautoclaim(STREAM, GROUP, consumer, min_idle_time=30000,
+                             start_id=start_id, count=10)
+    next_id, claimed = reclaimed[0], reclaimed[1]
+    if next_id == "0-0":
+        _RECLAIM_CURSORS.pop(cursor_key, None)
+    else:
+        _RECLAIM_CURSORS[cursor_key] = next_id
     messages = claimed
     if not messages:
+        # Do not let a new-message read hide the remainder of a pending scan.
+        if next_id != "0-0":
+            return 0
         batches = r.xreadgroup(GROUP, consumer, {STREAM: ">"}, count=10, block=block_ms)
         messages = [message for _, entries in batches for message in entries]
     for entry_id, fields in messages:

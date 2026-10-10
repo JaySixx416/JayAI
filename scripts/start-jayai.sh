@@ -40,9 +40,17 @@ if [[ -z "${JAYAI_DATABASE_URL:-}" && -z "${JAYAI_DB_PASSWORD:-}" ]]; then
       printf 'JayAI local PostgreSQL did not become ready. See %s.log\n' "$local_pg_state" >&2
       exit 1
     fi
-    if ! psql "host=$local_pg_socket port=$local_pg_port dbname=postgres user=${USER:-$(id -un)}" \
-        -Atc "SELECT 1 FROM pg_database WHERE datname='jayai'" | grep -q 1; then
+    if ! database_exists="$(psql -X -h "$local_pg_socket" -p "$local_pg_port" \
+        -d postgres -U "${USER:-$(id -un)}" -v ON_ERROR_STOP=1 \
+        -Atc "SELECT 1 FROM pg_database WHERE datname='jayai'")"; then
+      printf 'Could not inspect existing PostgreSQL databases; startup stopped without creating a database.\n' >&2
+      exit 1
+    fi
+    if [[ -z "$database_exists" ]]; then
       createdb -h "$local_pg_socket" -p "$local_pg_port" -U "${USER:-$(id -un)}" jayai
+    elif [[ "$database_exists" != "1" ]]; then
+      printf 'Unexpected PostgreSQL inspection result; startup stopped without creating a database.\n' >&2
+      exit 1
     fi
     export JAYAI_DB_HOST="$local_pg_socket"
     export JAYAI_DB_PORT="$local_pg_port"
@@ -92,14 +100,37 @@ if [[ -z "${JAYAI_DEV_USER_ID:-}" ]]; then
   export JAYAI_DEV_USER_ID
 fi
 
-if [[ -z "${JAYAI_DEV_API_KEY:-}" ]]; then
-  JAYAI_DEV_API_KEY="$("$python" -c 'import secrets; print(secrets.token_hex(32))')"
-  export JAYAI_DEV_API_KEY
-  printf 'Dashboard key for this run: %s\n' "$JAYAI_DEV_API_KEY"
+key_dir="${XDG_STATE_HOME:-$HOME/.local/state}/JayAI"
+key_file="$key_dir/dashboard-key"
+umask 077
+mkdir -p "$key_dir"
+
+if [[ -L "$key_file" ]]; then
+  printf 'Dashboard key path must not be a symlink: %s\n' "$key_file" >&2
+  exit 1
 fi
+if [[ -f "$key_file" ]]; then
+  JAYAI_DEV_API_KEY="$(<"$key_file")"
+elif [[ -z "${JAYAI_DEV_API_KEY:-}" ]]; then
+  JAYAI_DEV_API_KEY="$("$python" -c 'import secrets; print(secrets.token_hex(32))')"
+fi
+
+if [[ ! "$JAYAI_DEV_API_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+  printf 'Invalid dashboard key; expected 64 lowercase hexadecimal characters.\n' >&2
+  exit 1
+fi
+
+key_tmp="$(mktemp "$key_dir/.dashboard-key.XXXXXX")"
+trap 'rm -f -- "$key_tmp"' EXIT
+printf '%s' "$JAYAI_DEV_API_KEY" > "$key_tmp"
+chmod 600 "$key_tmp"
+mv -f -- "$key_tmp" "$key_file"
+trap - EXIT
+export JAYAI_DEV_API_KEY
+printf 'Dashboard key saved at: %s\n' "$key_file"
 
 export JAYAI_ENV=development
 export JAYAI_LOCAL_MODEL="${JAYAI_LOCAL_MODEL:-qwen2.5:0.5b}"
 printf 'JayAI is starting on http://127.0.0.1:%s/\n' "$port"
 printf 'Keep this terminal open. Stop JayAI with Ctrl+C.\n'
-exec "$python" -m uvicorn jayai.main:app --host 127.0.0.1 --port "$port"
+exec "$python" -m uvicorn jayai.main:app --host 127.0.0.1 --port "$port" --no-access-log

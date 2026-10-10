@@ -49,6 +49,29 @@ def test_empty_password_fails_without_url_fallback(monkeypatch):
         db.database_url()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-socket configuration is Linux-only")
+def test_passwordless_unix_socket_configuration(monkeypatch):
+    monkeypatch.setenv("JAYAI_DB_HOST", "/tmp/private socket/it's jayai")
+    monkeypatch.setenv("JAYAI_DB_PORT", "55432")
+    monkeypatch.setenv("JAYAI_DB_NAME", "existing_jayai")
+    monkeypatch.setenv("JAYAI_DB_USER", "jaysixx")
+    config = conninfo_to_dict(db.database_url())
+    assert config == {"host": "/tmp/private socket/it's jayai", "port": "55432",
+                      "dbname": "existing_jayai", "user": "jaysixx", "connect_timeout": "10"}
+
+
+def test_url_still_overrides_socket_without_password(monkeypatch):
+    monkeypatch.setenv("JAYAI_DB_HOST", "/tmp/unused-socket")
+    monkeypatch.setenv("JAYAI_DATABASE_URL", "postgresql://configured/existing")
+    assert db.database_url() == "postgresql://configured/existing"
+
+
+def test_host_only_tcp_configuration_still_requires_credentials(monkeypatch):
+    monkeypatch.setenv("JAYAI_DB_HOST", "127.0.0.1")
+    with pytest.raises(RuntimeError, match="JAYAI_DATABASE_URL"):
+        db.database_url()
+
+
 def test_check_is_read_only_and_uses_repository_configuration(monkeypatch):
     monkeypatch.setenv("JAYAI_DB_PASSWORD", "secret")
     connect = MagicMock()

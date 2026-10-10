@@ -36,7 +36,10 @@ class Limits(BaseModel):
     max_steps: int = Field(default=30, ge=1, le=1000)
     max_tool_calls: int = Field(default=100, ge=1, le=10000)
     max_retries: int = Field(default=2, ge=0, le=10)
-    max_runtime_seconds: int = Field(default=900, ge=1, le=86400)
+    max_runtime_seconds: int = Field(
+        default=900, ge=1, le=86400,
+        description="Wall-clock budget from job creation, including human review time",
+    )
     max_cost_usd: float = Field(default=0.0, ge=0, le=10000)
 
 
