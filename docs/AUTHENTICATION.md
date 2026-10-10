@@ -67,6 +67,27 @@ HttpOnly cookie and only its hash is persisted. Set
 remains available only in `JAYAI_ENV=development` and is not a cloud login
 mechanism.
 
+State-changing requests authenticated by a session require the matching
+`jayai_csrf` cookie and `X-JayAI-CSRF` header. The dashboard supplies this
+header automatically when the cookie is present. Development-key requests do
+not need the CSRF header because they do not rely on a browser session cookie.
+
+## Bootstrap and recovery
+
+Before the first cloud login, create or identify the intended JayAI user in an
+isolated setup and set `JAYAI_OIDC_BOOTSTRAP_USER_ID` to that UUID for the
+initial link only. The first verified provider subject is linked to that user;
+unknown subjects are denied afterward. Remove the bootstrap variable after the
+link is confirmed. It is not a general user-registration switch, and it must
+never be set to a new or guessed UUID.
+
+`POST /auth/logout` revokes the current session. `POST /auth/logout-all`
+revokes every active session for the authenticated user. If a provider account
+is lost or suspected compromised, revoke its sessions, remove the OIDC
+identity row through a reviewed administrative procedure, and perform a fresh
+explicit link. Do not edit migration history or apply these steps to the
+existing database without an isolated rehearsal and backup plan.
+
 ## Development transition
 
 Keep the current `JAYAI_DEV_API_KEY` flow available only when
