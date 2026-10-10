@@ -8,7 +8,7 @@ import json
 import os
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class SongRequest(BaseModel):
@@ -151,6 +151,11 @@ def prepare_song(body: SongRequest, transport: httpx.BaseTransport | None = None
         package = SongPackage.model_validate_json(content)
     except RuntimeError:
         raise
+    except ValidationError as exc:
+        if any(error.get("loc") == ("suno_style",) and
+               error.get("type") == "string_too_long" for error in exc.errors()):
+            raise RuntimeError("The model returned a Suno style prompt over the 750-character limit.") from exc
+        raise RuntimeError("Song model request failed or returned an invalid package.") from exc
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise RuntimeError("Song model request failed or returned an invalid package.") from exc
     if len(package.suno_style) > 750:
