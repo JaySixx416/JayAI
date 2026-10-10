@@ -52,6 +52,7 @@ def repository() -> Repository:
 
 
 SESSION_COOKIE = "jayai_session"
+CSRF_COOKIE = "jayai_csrf"
 OIDC_STATE_COOKIE = "jayai_oidc_state"
 OIDC_NONCE_COOKIE = "jayai_oidc_nonce"
 OIDC_VERIFIER_COOKIE = "jayai_oidc_verifier"
@@ -74,6 +75,11 @@ def development_user(request: Request, x_jayai_key: str | None = Header(default=
         if not os.getenv("JAYAI_OIDC_ISSUER"):
             raise HTTPException(status_code=503, detail="OIDC authentication is not configured")
         raise HTTPException(status_code=401, detail="Authentication required")
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        csrf_cookie = request.cookies.get(CSRF_COOKIE, "")
+        csrf_header = request.headers.get("x-jayai-csrf", "")
+        if not csrf_cookie or not csrf_header or not compare_digest(csrf_cookie, csrf_header):
+            raise HTTPException(status_code=403, detail="CSRF validation failed")
     db = repository()
     row = db.get_auth_session(session_token_hash(token))
     if row is None:
@@ -142,6 +148,8 @@ def oidc_callback(request: Request, code: str = "", state: str = "",
     response = JSONResponse({"authenticated": True})
     response.set_cookie(SESSION_COOKIE, token, httponly=True, secure=settings.cookie_secure,
                         samesite="lax", path="/", max_age=43200)
+    response.set_cookie(CSRF_COOKIE, new_session_token(), httponly=False,
+                        secure=settings.cookie_secure, samesite="lax", path="/", max_age=43200)
     for name in (OIDC_STATE_COOKIE, OIDC_NONCE_COOKIE, OIDC_VERIFIER_COOKIE):
         response.delete_cookie(name, path="/auth")
     return response
@@ -151,9 +159,24 @@ def oidc_callback(request: Request, code: str = "", state: str = "",
 def logout(request: Request, db: Repository = Depends(repository)) -> JSONResponse:
     token = request.cookies.get(SESSION_COOKIE)
     if token:
+        csrf_cookie = request.cookies.get(CSRF_COOKIE, "")
+        csrf_header = request.headers.get("x-jayai-csrf", "")
+        if not csrf_cookie or not csrf_header or not compare_digest(csrf_cookie, csrf_header):
+            raise HTTPException(status_code=403, detail="CSRF validation failed")
         db.revoke_auth_session(session_token_hash(token))
     response = JSONResponse({"authenticated": False})
     response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+    return response
+
+
+@app.post("/auth/logout-all")
+def logout_all(request: Request, user_id: UUID = Depends(development_user),
+               db: Repository = Depends(repository)) -> JSONResponse:
+    db.revoke_user_sessions(user_id)
+    response = JSONResponse({"authenticated": False})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
     return response
 
 
