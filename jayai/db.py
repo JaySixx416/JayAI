@@ -144,6 +144,23 @@ class Repository:
             ).fetchone()
             return row[0] if row else None
 
+    def bind_oidc_identity(self, user_id: UUID, issuer: str, subject: str) -> bool:
+        """Bind one verified provider subject to one existing JayAI user."""
+        if not issuer or not subject:
+            raise ValueError("OIDC identity is incomplete")
+        try:
+            with psycopg.connect(self.url) as conn:
+                result = conn.execute(
+                    "INSERT INTO oidc_identities (id,user_id,issuer,subject,last_login_at) "
+                    "VALUES (%s,%s,%s,%s,now()) "
+                    "ON CONFLICT (issuer, subject) DO UPDATE SET last_login_at=now() "
+                    "WHERE oidc_identities.user_id=%s",
+                    (uuid4(), user_id, issuer, subject, user_id),
+                )
+                return result.rowcount == 1
+        except psycopg.errors.UniqueViolation:
+            return False
+
     def create_user(self) -> UUID:
         user_id = uuid4()
         with psycopg.connect(self.url) as conn:
